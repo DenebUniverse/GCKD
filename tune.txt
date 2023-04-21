@@ -1,0 +1,13 @@
+d:
+cd projects/PythonProjects/SimKD/
+conda activate dgl
+
+python train_student_tb.py --path_t ./save/teachers/models/resnet32x4_vanilla/resnet32x4_best.pth --distill gld --model_s resnet8x4 --gnnlayer TAG --gnnencoder momentum --adj_k 8 --NPerturb 0.1 --EPerturb 0 -c 1 -d 1 -m 1 -b 3 --trial 1
+python train_student_tb.py --path_t ./save/teachers/models/resnet32x4_vanilla/resnet32x4_best.pth --distill gld --model_s resnet8x4 --gnnlayer TAG --gnnencoder momentum --adj_k 16 --NPerturb 0.1 --EPerturb 0 -c 1 -d 1 -m 1 -b 3 --trial 1
+python train_student_tb.py --path_t ./save/teachers/models/resnet32x4_vanilla/resnet32x4_best.pth --distill gld --model_s resnet8x4 --gnnlayer TAG --gnnencoder momentum --adj_k 32 --NPerturb 0.1 --EPerturb 0 -c 1 -d 1 -m 1 -b 3 --trial 1
+python train_student_tb.py --path_t ./save/teachers/models/resnet32x4_vanilla/resnet32x4_best.pth --distill gld --model_s resnet8x4 --gnnlayer TAG --gnnencoder momentum --adj_k 64 --NPerturb 0.1 --EPerturb 0 -c 1 -d 1 -m 1 -b 3 --trial 1
+
+python train_student_tb.py --path_t ./save/teachers/models/resnet32x4_vanilla/resnet32x4_best.pth --distill gld --model_s resnet8x4 --gnnlayer TAG --gnnencoder one --adj_k 8 --NPerturb 0.1 --EPerturb 0 -c 1 -d 1 -m 1 -b 3 --trial 1
+python train_student_tb.py --path_t ./save/teachers/models/resnet32x4_vanilla/resnet32x4_best.pth --distill gld --model_s resnet8x4 --gnnlayer TAG --gnnencoder one --adj_k 16 --NPerturb 0.1 --EPerturb 0 -c 1 -d 1 -m 1 -b 3 --trial 1
+python train_student_tb.py --path_t ./save/teachers/models/resnet32x4_vanilla/resnet32x4_best.pth --distill gld --model_s resnet8x4 --gnnlayer TAG --gnnencoder one --adj_k 32 --NPerturb 0.1 --EPerturb 0 -c 1 -d 1 -m 1 -b 3 --trial 1
+python train_student_tb.py --path_t ./save/teachers/models/resnet32x4_vanilla/resnet32x4_best.pth --distill gld --model_s resnet8x4 --gnnlayer TAG --gnnencoder one --adj_k 64 --NPerturb 0.1 --EPerturb 0 -c 1 -d 1 -m 1 -b 3 --trial 1
