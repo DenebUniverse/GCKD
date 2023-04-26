@@ -433,8 +433,8 @@ def main_worker(gpu, ngpus_per_node, opt):
         raise NotImplementedError(opt.dataset)
 
     # ===================logger&validate=====================
-    if not opt.multiprocessing_distributed or opt.rank % ngpus_per_node == 0:
-        logger = tb_logger.Logger(logdir=opt.tb_folder, flush_secs=2)
+    # if not opt.multiprocessing_distributed or opt.rank % ngpus_per_node == 0:
+    #     logger = tb_logger.Logger(logdir=opt.tb_folder, flush_secs=2)
 
     if not opt.skip_validation:
         # validate teacher accuracy
