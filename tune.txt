@@ -1,6 +1,6 @@
-d:
-cd projects/PythonProjects/SimKD/
+source activate
 conda activate dgl
+cd PycharmProjects/SimKD/
 
 python train_student_tb.py --path_t ./save/teachers/models/resnet32x4_vanilla/resnet32x4_best.pth --distill gld --model_s resnet8x4 --gnnlayer TAG --gnnencoder momentum --adj_k 8 --NPerturb 0.1 --EPerturb 0 -c 1 -d 1 -m 1 -b 3 --trial 1
 python train_student_tb.py --path_t ./save/teachers/models/resnet32x4_vanilla/resnet32x4_best.pth --distill gld --model_s resnet8x4 --gnnlayer TAG --gnnencoder momentum --adj_k 16 --NPerturb 0.1 --EPerturb 0 -c 1 -d 1 -m 1 -b 3 --trial 1
@@ -11,3 +11,24 @@ python train_student_tb.py --path_t ./save/teachers/models/resnet32x4_vanilla/re
 python train_student_tb.py --path_t ./save/teachers/models/resnet32x4_vanilla/resnet32x4_best.pth --distill gld --model_s resnet8x4 --gnnlayer TAG --gnnencoder one --adj_k 16 --NPerturb 0.1 --EPerturb 0 -c 1 -d 1 -m 1 -b 3 --trial 1
 python train_student_tb.py --path_t ./save/teachers/models/resnet32x4_vanilla/resnet32x4_best.pth --distill gld --model_s resnet8x4 --gnnlayer TAG --gnnencoder one --adj_k 32 --NPerturb 0.1 --EPerturb 0 -c 1 -d 1 -m 1 -b 3 --trial 1
 python train_student_tb.py --path_t ./save/teachers/models/resnet32x4_vanilla/resnet32x4_best.pth --distill gld --model_s resnet8x4 --gnnlayer TAG --gnnencoder one --adj_k 64 --NPerturb 0.1 --EPerturb 0 -c 1 -d 1 -m 1 -b 3 --trial 1
+
+python train_student_tb.py --path_t ./save/teachers/models/resnet32x4_vanilla/resnet32x4_best.pth --distill gld --model_s resnet8x4 --gnnlayer TAG --gnnencoder one --adj_k 8 --NPerturb 0.1 --EPerturb 0 -c 1 -d 1 -m 1 -b 3 --trial 1
+python train_student_tb.py --path_t ./save/teachers/models/resnet32x4_vanilla/resnet32x4_best.pth --distill gld --model_s resnet8x4 --gnnlayer TAG --gnnencoder one --adj_k 16 --NPerturb 0.1 --EPerturb 0 -c 1 -d 1 -m 1 -b 3 --trial 1
+python train_student_tb.py --path_t ./save/teachers/models/resnet32x4_vanilla/resnet32x4_best.pth --distill gld --model_s resnet8x4 --gnnlayer TAG --gnnencoder one --adj_k 32 --NPerturb 0.1 --EPerturb 0 -c 1 -d 1 -m 1 -b 3 --trial 1
+python train_student_tb.py --path_t ./save/teachers/models/resnet32x4_vanilla/resnet32x4_best.pth --distill gld --model_s resnet8x4 --gnnlayer TAG --gnnencoder one --adj_k 64 --NPerturb 0.1 --EPerturb 0 -c 1 -d 1 -m 1 -b 3 --trial 1
+
+
+python train_student_tb.py --path_t ./save/teachers/models_240/resnet32x4_vanilla/ckpt_epoch_240.pth --distill gld --model_s resnet8x4 --gnnlayer TAG --gnnencoder one --adj_k 8 --NPerturb 0.1 --EPerturb 0 -c 1 -d 1 -m 0 -b 3 --trial 1
+python train_student_tb.py --path_t ./save/teachers/models_240/resnet32x4_vanilla/ckpt_epoch_240.pth --distill gld --model_s resnet8x4 --gnnlayer TAG --gnnencoder one --adj_k 16 --NPerturb 0.1 --EPerturb 0 -c 1 -d 1 -m 0 -b 3 --trial 1
+python train_student_tb.py --path_t ./save/teachers/models_240/resnet32x4_vanilla/ckpt_epoch_240.pth --distill gld --model_s resnet8x4 --gnnlayer TAG --gnnencoder one --adj_k 32 --NPerturb 0.1 --EPerturb 0 -c 1 -d 1 -m 0 -b 3 --trial 1
+python train_student_tb.py --path_t ./save/teachers/models_240/resnet32x4_vanilla/ckpt_epoch_240.pth --distill gld --model_s resnet8x4 --gnnlayer TAG --gnnencoder one --adj_k 64 --NPerturb 0.1 --EPerturb 0 -c 1 -d 1 -m 0 -b 3 --trial 1
+
+python train_student_tb.py --path_t ./save/teachers/models_240/resnet32x4_vanilla/ckpt_epoch_240.pth --distill gld --model_s resnet8x4 --gnnlayer TAG --layers 2 --gnnencoder one --adj_k 8 --NPerturb 0.01 --EPerturb 0 -c 1 -d 1 -m 0 -b 3 --trial 1
+python train_student_tb.py --path_t ./save/teachers/models_240/resnet32x4_vanilla/ckpt_epoch_240.pth --distill gld --model_s resnet8x4 --gnnlayer TAG --layers 1 --gnnencoder one --adj_k 64 --NPerturb 0.01 --EPerturb 0 -c 1 -d 1 -m 0 -b 3 --trial 1
+python train_student_tb.py --path_t ./save/teachers/models_240/resnet32x4_vanilla/ckpt_epoch_240.pth --distill gld --model_s resnet8x4 --gnnlayer TAG --layers 1 --gnnencoder one --adj_k 128 --NPerturb 0.01 --EPerturb 0 -c 1 -d 1 -m 0 -b 3 --trial 1
+
+
+--path_t ./save/teachers/models_240/resnet32x4_vanilla/ckpt_epoch_240.pth --distill gld --model_s resnet8x4 --gnnlayer TAG --layers 1 --gnnencoder one --adj_k 128 --NPerturb 0.1 --EPerturb 0 -c 1 -d 1 -m 1 -b 3 --trial 1
+
+--path_t ./save/teachers/models_240/ResNet50_vanilla/ckpt_epoch_240.pth --distill gckd --last_feature 2 --model_s vgg8 --gnnlayer TAG --layers 1 --gnnencoder one --adj_k 128 --NPerturb 0.1 --EPerturb 0 -c 1 -d 1 -m 1 -b 3 --trial 1
+--path_t ./save/teachers/models_240/resnet32x4_vanilla/ckpt_epoch_240.pth --distill gckd --last_feature 2 --model_s resnet8x4 --gnnlayer TAG --layers 1 --gnnencoder one --adj_k 128 --NPerturb 0.1 --EPerturb 0 -c 1 -d 1 -m 1 -b 3 --trial 1

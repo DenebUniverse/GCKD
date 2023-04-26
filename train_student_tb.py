@@ -20,7 +20,7 @@ import torch.backends.cudnn as cudnn
 import tensorboard_logger as tb_logger
 from torch.utils.tensorboard import SummaryWriter
 
-from distiller_zoo.GLKD import GL_MoCo
+from distiller_zoo.GLKD import GL_MoCo, GCKD
 from models import model_dict
 from distiller_zoo.SimKD import ConvReg, SelfA, SRRL, SimKD
 
@@ -65,7 +65,8 @@ def parse_option():
     parser.add_argument('--kd_T', type=float, default=4, help='temperature for KD distillation')
     parser.add_argument('--cl_T', type=float, default=0.07, help='temperature for CL distillation')
     parser.add_argument('--distill', type=str, default='kd', choices=['kd', 'hint', 'attention', 'similarity', 'vid',
-                                                                      'crd', 'semckd', 'srrl', 'simkd', 'gld'])
+                                                                      'crd', 'semckd', 'srrl', 'simkd',
+                                                                      'gld', 'gckd'])
     parser.add_argument('-c', '--cls', type=float, default=1.0, help='weight for classification')
     parser.add_argument('-d', '--div', type=float, default=1.0, help='weight balance for KD')
     parser.add_argument('-m', '--mu', type=float, default=None, help='weight balance for feature l2 loss')
@@ -90,6 +91,8 @@ def parse_option():
     parser.add_argument('--NPerturb', default=0.1, type=float)
     parser.add_argument('--EPerturb', default=0.1, type=float)
     parser.add_argument('--gnnlayer', default=None, type=str, choices=['GIN', 'GCN', 'TAG'])
+    parser.add_argument('--layers', type=int, default=1)
+    parser.add_argument('--last_feature', type=int, default=2)
     parser.add_argument('--gnnencoder', default=None, type=str, choices=['one', 'two', 'momentum'])
     parser.add_argument('--loss_func', default=None, type=str, choices=['softmax', 'cl'])
     parser.add_argument('--adj_k', type=int, default=20)
@@ -143,15 +146,16 @@ def parse_option():
     setup_seed(opt.seed)
 
     # model_name_template = split_symbol.join(['S', '{}_T', '{}_{}_{}_r', '{}_a', '{}_b', '{}_{}'])
-    template = 'S_{}-T_{}-D_{}_{}-M_{}-G_{}_{}-A_{}-adv_{}_{}_{}-L_{}-c_{}-d_{}-m_{}-b_{}-lr_{}-clT_{}-kdT_{}-{}_{}'
-    opt.model_name = template.format(opt.model_s, opt.model_t, opt.dataset, opt.batch_size, opt.distill,
-                                                opt.gnnlayer, opt.gnnencoder, opt.adj_k,
-                                                opt.gadv,opt.NPerturb,opt.EPerturb,
-                                                opt.loss_func,
-                                                opt.cls, opt.div, opt.mu, opt.beta,
-                                                opt.cos, opt.cl_T, opt.kd_T, opt.seed, opt.trial,
-                                                # opt.cls, opt.div, opt.beta, opt.trial
-                                                )
+    template = 'S_{}-T_{}-D_{}_{}-M_{}_{}-G_{}_{}_{}-A_{}-adv_{}_{}_{}-L_{}-c_{}-d_{}-m_{}-b_{}-lr_{}-clT_{}-kdT_{}-{}_{}'
+    opt.model_name = template.format(opt.model_s, opt.model_t, opt.dataset, opt.batch_size,
+                                     opt.distill, opt.last_feature,
+                                     opt.gnnlayer, opt.layers, opt.gnnencoder, opt.adj_k,
+                                     opt.gadv, opt.NPerturb, opt.EPerturb,
+                                     opt.loss_func,
+                                     opt.cls, opt.div, opt.mu, opt.beta,
+                                     opt.cos, opt.cl_T, opt.kd_T, opt.seed, opt.trial,
+                                     # opt.cls, opt.div, opt.beta, opt.trial
+                                     )
     if opt.dali is not None:
         opt.model_name += '_dali:' + opt.dali
 
@@ -331,12 +335,21 @@ def main_worker(gpu, ngpus_per_node, opt):
         t_n = feat_t[-1].shape[1]
         # print("s_dim",s_n)
         # print("t_dim",t_n)
-        momentum_rate={'one':0,'two':1,'momentum':0.99}
-        criterion_kd = GL_MoCo(s_dim=s_n, t_dim=t_n,m=momentum_rate[opt.gnnencoder],opt=opt)#m momentum rate one:0 two:1 momentum 0.99
+        momentum_rate = {'one': 0, 'two': 1, 'momentum': 0.99}
+        criterion_kd = GL_MoCo(s_dim=s_n, t_dim=t_n, m=momentum_rate[opt.gnnencoder],
+                               opt=opt)  # m momentum rate one:0 two:1 momentum 0.99
         module_list.append(criterion_kd.transfer)
         trainable_list.append(criterion_kd.transfer)
         # trainable_list.append(criterion_kd.gnn_q)
         # trainable_list.append(criterion_kd.gnn_k)
+    elif opt.distill == 'gckd':
+        s_n = feat_s[-1].shape[1] if opt.last_feature == 1 else feat_s[-2].shape[1]
+        t_n = feat_t[-1].shape[1] if opt.last_feature == 1 else feat_t[-2].shape[1]
+        momentum_rate = {'one': 0, 'two': 1, 'momentum': 0.99}
+        criterion_kd = GCKD(s_dim=s_n, t_dim=t_n, m=momentum_rate[opt.gnnencoder],
+                            opt=opt)  # m momentum rate one:0 two:1 momentum 0.99
+        module_list.append(criterion_kd.transfer)
+        trainable_list.append(criterion_kd.transfer)
     else:
         raise NotImplementedError(opt.distill)
 
@@ -353,8 +366,8 @@ def main_worker(gpu, ngpus_per_node, opt):
                           lr=opt.learning_rate,
                           momentum=opt.momentum,
                           weight_decay=opt.weight_decay)
-    optimizer_list=[optimizer]
-    if opt.distill == 'gld':
+    optimizer_list = [optimizer]
+    if opt.distill in ['gld', 'gckd']:
         GNN_optimizer = optim.SGD(nn.ModuleList([criterion_kd.gnn_q, criterion_kd.gnn_k]).parameters(),
                                   lr=opt.learning_rate,
                                   momentum=opt.momentum,
@@ -366,7 +379,6 @@ def main_worker(gpu, ngpus_per_node, opt):
                                                     momentum=opt.momentum,
                                                     weight_decay=opt.weight_decay)
             optimizer_list.append(adversarial_optimizer)
-
 
     if torch.cuda.is_available():
         # For multiprocessing distributed, DistributedDataParallel constructor

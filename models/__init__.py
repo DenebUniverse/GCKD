@@ -1,5 +1,6 @@
 from .resnet import resnet38, resnet110, resnet116, resnet14x2, resnet38x2, resnet110x2
 from .resnet import resnet8x4, resnet14x4, resnet32x4, resnet38x4
+from .resnetv2 import ResNet50
 from .vgg import vgg8_bn, vgg13_bn
 from .mobilenetv2 import mobile_half, mobile_half_double
 from .ShuffleNetv1 import ShuffleV1
@@ -28,16 +29,17 @@ model_dict = {
     'ShuffleV1': ShuffleV1,
     'ShuffleV2': ShuffleV2,
     'ShuffleV2_1_5': ShuffleV2_1_5,
+    'ResNet50': ResNet50,
     
-    'ResNet18': resnet18,
-    'ResNet34': resnet34,
-    'ResNet50': resnet50,
-    'resnext50_32x4d': resnext50_32x4d,
-    'ResNet10x2': wide_resnet10_2,
-    'ResNet18x2': wide_resnet18_2,
-    'ResNet34x2': wide_resnet34_2,
-    'wrn_50_2': wide_resnet50_2,
-    
-    'MobileNetV2_Imagenet': mobilenet_v2,
-    'ShuffleV2_Imagenet': shufflenet_v2_x1_0,
+    # 'ResNet18': resnet18,
+    # 'ResNet34': resnet34,
+    # 'ResNet50': resnet50,
+    # 'resnext50_32x4d': resnext50_32x4d,
+    # 'ResNet10x2': wide_resnet10_2,
+    # 'ResNet18x2': wide_resnet18_2,
+    # 'ResNet34x2': wide_resnet34_2,
+    # 'wrn_50_2': wide_resnet50_2,
+    #
+    # 'MobileNetV2_Imagenet': mobilenet_v2,
+    # 'ShuffleV2_Imagenet': shufflenet_v2_x1_0,
 }
