@@ -17,7 +17,7 @@ import torch.multiprocessing as mp
 import torch.distributed as dist
 import torch.nn as nn
 import torch.backends.cudnn as cudnn
-import tensorboard_logger as tb_logger
+# import tensorboard_logger as tb_logger
 from torch.utils.tensorboard import SummaryWriter
 
 from distiller_zoo.GLKD import GL_MoCo, GCKD
@@ -478,8 +478,8 @@ def main_worker(gpu, ngpus_per_node, opt):
             print(' * Epoch {}, GPU {}, Acc@1 {:.3f}, Acc@5 {:.3f}, Time {:.2f}'.format(epoch, opt.gpu, train_acc,
                                                                                         train_acc_top5, time2 - time1))
 
-            logger.log_value('train_acc', train_acc, epoch)
-            logger.log_value('train_loss', train_loss, epoch)
+            # logger.log_value('train_acc', train_acc, epoch)
+            # logger.log_value('train_loss', train_loss, epoch)
 
         print('GPU %d validating' % (opt.gpu))
         test_acc, test_acc_top5, test_loss = validate_distill(val_loader, module_list, criterion_cls, opt)
@@ -509,9 +509,9 @@ def main_worker(gpu, ngpus_per_node, opt):
         if not opt.multiprocessing_distributed or opt.rank % ngpus_per_node == 0:
             print(' ** Acc@1 {:.3f}, Acc@5 {:.3f}'.format(test_acc, test_acc_top5))
 
-            logger.log_value('test_acc', test_acc, epoch)
-            logger.log_value('test_loss', test_loss, epoch)
-            logger.log_value('test_acc_top5', test_acc_top5, epoch)
+            # logger.log_value('test_acc', test_acc, epoch)
+            # logger.log_value('test_loss', test_loss, epoch)
+            # logger.log_value('test_acc_top5', test_acc_top5, epoch)
 
             # save the best model
             if test_acc > best_acc:
