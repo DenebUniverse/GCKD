@@ -6,12 +6,12 @@ import torch.nn.functional as F
 from dgl.nn.pytorch import TAGConv, GINConv, GraphConv
 from dgl import DGLGraph
 from scipy import sparse
-from dgl.nn.pytorch.factory import KNNGraph
+# from dgl.nn.pytorch.factory import KNNGraph
 import torch.nn.functional as F
 import dgl.backend as B
-import dgl.function as fn
-import dgl
-import numpy as np
+# import dgl.function as fn
+# import dgl
+# import numpy as np
 
 eps = 1e-7
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")

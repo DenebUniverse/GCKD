@@ -537,6 +537,18 @@ def main_worker(gpu, ngpus_per_node, opt):
     if not opt.multiprocessing_distributed or opt.rank % ngpus_per_node == 0:
         # This best accuracy is only for printing purpose.
         print('best accuracy:', best_acc)
+        # write best_acc
+        with open(os.path.join(opt.tb_path, 'summary.csv'), 'a+', newline='') as file:
+            writer = csv.writer(file)
+            # header = ["teacher_model", "student_model", "dataset", "batch_size", "epoch", "distill", "last_feature",
+            #           "GNN", "layers", "encoders", "Adjacency", "NPerturb", "Eperturb",
+            #           "loss", "cls", "div", "mu", "kd", "test_acc", "seed"]
+            # writer.writerow(header)
+            row = [opt.model_t, opt.model_s, opt.dataset, opt.batch_size, opt.epochs, opt.distill, opt.last_feature,
+                   opt.gnnlayer, opt.layers, opt.gnnencoder, opt.adj_k, opt.NPerturb, opt.EPerturb,
+                   opt.loss_func, opt.cls, opt.div, opt.mu, opt.beta,
+                   best_acc, opt.seed,]
+            writer.writerow(row)
 
         # save parameters
         save_state = {k: v for k, v in opt._get_kwargs() if k != 'tb_writer'}
