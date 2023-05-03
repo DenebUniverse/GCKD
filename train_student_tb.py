@@ -26,7 +26,7 @@ from distiller_zoo.SimKD import ConvReg, SelfA, SRRL, SimKD
 
 from dataset.cifar100 import get_cifar100_dataloaders, get_cifar100_dataloaders_sample
 from dataset.imagenet import get_imagenet_dataloader, get_dataloader_sample
-# from dataset.imagenet_dali import get_dali_data_loader
+from dataset.imagenet_dali import get_dali_data_loader
 
 from helper.loops import train_distill as train, validate_vanilla, validate_distill
 from helper.util import save_dict_to_json, reduce_tensor, adjust_learning_rate
@@ -157,7 +157,7 @@ def parse_option():
                                      # opt.cls, opt.div, opt.beta, opt.trial
                                      )
     if opt.dali is not None:
-        opt.model_name += '_dali:' + opt.dali
+        opt.model_name += '-dali_' + opt.dali
 
     opt.tb_folder = os.path.join(opt.tb_path, opt.model_name)
     if not os.path.isdir(opt.tb_folder):
@@ -170,7 +170,7 @@ def parse_option():
     return opt
 
 
-def get_teacher_name(model_path):
+def get_teacher_name(model_path,n_cls=None):
     """parse teacher name"""
     directory = model_path.split('/')[-2]
     pattern = ''.join(['S', split_symbol, '(.+)', '_T', split_symbol])
@@ -180,12 +180,12 @@ def get_teacher_name(model_path):
     segments = directory.split('_')
     if segments[0] == 'wrn':
         return segments[0] + '_' + segments[1] + '_' + segments[2]
-    return segments[0]
+    return segments[0]+'_'+str(n_cls) if  n_cls != None else segments[0]
 
 
 def load_teacher(model_path, n_cls, gpu=None, opt=None):
     print('==> loading teacher model')
-    model_t = get_teacher_name(model_path)
+    model_t = get_teacher_name(model_path,n_cls)
     model = model_dict[model_t](num_classes=n_cls)
     map_location = None if gpu is None else {'cuda:0': 'cuda:%d' % (gpu if opt.multiprocessing_distributed else 0)}
     model.load_state_dict(torch.load(model_path, map_location=map_location)['model'])
@@ -202,7 +202,7 @@ def main():
 
     # tensorboard logger
     print("tensorboard --logdir " + opt.tb_folder + "/tb_logs")
-    opt.tb_writer = SummaryWriter(log_dir=opt.tb_folder + '/tb_logs', comment='GLD')
+    tb_writer = SummaryWriter(log_dir=opt.tb_folder + '/tb_logs', comment='GLD')
     with open(os.path.join(opt.tb_path, 'tensorbroad.txt'), 'a+') as f:
         f.write("tensorboard --logdir " + opt.tb_folder + "/tb_logs\n")
     save_file = os.path.join(opt.tb_path, opt.model_name, 'log{trial}.csv'.format(trial=opt.trial))
@@ -227,13 +227,15 @@ def main():
         # main_worker process function
         mp.spawn(main_worker, nprocs=ngpus_per_node, args=(ngpus_per_node, opt))
     else:
-        main_worker(None if ngpus_per_node > 1 else opt.gpu_id, ngpus_per_node, opt)
+        main_worker(None if ngpus_per_node > 1 else opt.gpu_id, ngpus_per_node, opt,tb_writer)
+    # main_worker(None if ngpus_per_node > 1 else opt.gpu_id, ngpus_per_node, opt)
 
 
-def main_worker(gpu, ngpus_per_node, opt):
+def main_worker(gpu, ngpus_per_node, opt,tb_writer=None):
     global best_acc, total_time
     opt.gpu = int(gpu)
     opt.gpu_id = int(gpu)
+    opt.tb_writer=tb_writer
 
     if opt.gpu is not None:
         print("Use GPU: {} for training".format(opt.gpu))
@@ -255,7 +257,7 @@ def main_worker(gpu, ngpus_per_node, opt):
 
     model_t = load_teacher(opt.path_t, n_cls, opt.gpu, opt)
     try:
-        model_s = model_dict[opt.model_s](num_classes=n_cls)
+        model_s = model_dict[opt.model_s+'_'+str(n_cls)](num_classes=n_cls)
     except KeyError:
         print("This model is not supported.")
 
@@ -427,7 +429,7 @@ def main_worker(gpu, ngpus_per_node, opt):
                                                                                   num_workers=opt.num_workers,
                                                                                   multiprocessing_distributed=opt.multiprocessing_distributed)
         else:
-            # train_loader, val_loader = get_dali_data_loader(opt)
+            train_loader, val_loader = get_dali_data_loader(opt)
             pass
     else:
         raise NotImplementedError(opt.dataset)
@@ -464,10 +466,11 @@ def main_worker(gpu, ngpus_per_node, opt):
                                                                  optimizer_list, opt)
         time2 = time.time()
 
-        opt.tb_writer.add_scalar('acc/train_acc', train_acc, epoch)
-        opt.tb_writer.add_scalar('acc/train_acc_top5', train_acc_top5, epoch)
-        for k, v in loss_dict.items():
-            opt.tb_writer.add_scalar('loss/' + k, v, epoch)
+        if opt.tb_writer!=None:
+            opt.tb_writer.add_scalar('acc/train_acc', train_acc, epoch)
+            opt.tb_writer.add_scalar('acc/train_acc_top5', train_acc_top5, epoch)
+            for k, v in loss_dict.items():
+                opt.tb_writer.add_scalar('loss/' + k, v, epoch)
 
         if opt.multiprocessing_distributed:
             metrics = torch.tensor([train_acc, train_acc_top5, train_loss]).cuda(opt.gpu, non_blocking=True)
@@ -484,10 +487,11 @@ def main_worker(gpu, ngpus_per_node, opt):
         print('GPU %d validating' % (opt.gpu))
         test_acc, test_acc_top5, test_loss = validate_distill(val_loader, module_list, criterion_cls, opt)
 
-        opt.tb_writer.add_scalar('acc/test_acc', test_acc, epoch)
-        opt.tb_writer.add_scalar('acc/test_acc_top5', test_acc_top5, epoch)
-        for k, v in loss_dict.items():
-            opt.tb_writer.add_scalar('loss/' + k, v, epoch)
+        if opt.tb_writer!=None:
+            opt.tb_writer.add_scalar('acc/test_acc', test_acc, epoch)
+            opt.tb_writer.add_scalar('acc/test_acc_top5', test_acc_top5, epoch)
+            for k, v in loss_dict.items():
+                opt.tb_writer.add_scalar('loss/' + k, v, epoch)
         save_file = os.path.join(opt.tb_path, opt.model_name, 'log{trial}.csv'.format(trial=opt.trial))
         with open(save_file, 'a+', newline='') as f:
             writer = csv.writer(f)
@@ -559,7 +563,8 @@ def main_worker(gpu, ngpus_per_node, opt):
         params_json_path = os.path.join(opt.save_folder, "parameters.json")
         save_dict_to_json(save_state, params_json_path)
 
-    opt.tb_writer.close()
+    if opt.tb_writer!=None:
+        opt.tb_writer.close()
 
 
 if __name__ == '__main__':

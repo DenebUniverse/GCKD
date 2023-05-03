@@ -79,7 +79,7 @@ def get_dali_data_loader(args):
     crop_size = 224
     val_size = 256
 
-    path = '../data'
+    path = '../../../wangbo/data/'
     data_folder = os.path.join(path, args.dataset)
     if not os.path.isdir(data_folder):
         print('Please place the ImageNet dataset at: ', path)

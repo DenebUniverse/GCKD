@@ -240,28 +240,50 @@ def train_distill(epoch, train_loader, module_list, criterion_list, optimizer_li
                 (-loss_contrast_gtt).backward()
                 adversarial_optimizer.step()
 
-        # print info
-        if idx % opt.print_freq == 0:
-            print('Epoch: [{epoch}][{idx}/{batch_num}]\t'
-                  'Time {batch_time.val:.3f} ({batch_time.avg:.3f})\t'
-                  'Gpu {gpu} ({gpu})\n'
-                  'Loss {loss.val:.4f} ({loss.avg:.4f})\t'
-                  'losses_cls {losses_cls.val:.4f} ({losses_cls.avg:.4f})\t'
-                  'losses_kl {losses_kl.val:.4f} ({losses_kl.avg:.4f})\t'
-                  'losses_kd {losses_kd.val:.4f} ({losses_kd.avg:.4f})\t'
-                  'losses_mse {losses_mse.val:.4f} ({losses_mse.avg:.4f})\n'
-                  'losses_its {losses_its.val:.4f} ({losses_its.avg:.4f})\t'
-                  'losses_gts {losses_gts.val:.4f} ({losses_gts.avg:.4f})\t'
-            # 'losses_gtt {losses_gtt.val:.4f} ({losses_gtt.avg:.4f})\t'
-                  'Acc@1 {top1.val:.3f} ({top1.avg:.3f})\t'
-                  'Acc@5 {top5.val:.3f} ({top5.avg:.3f})'.format(
-                epoch=epoch, idx=idx, batch_num=len(train_loader), batch_time=batch_time, gpu=opt.gpu,
-                loss=losses, losses_cls=losses_cls, losses_kl=losses_div, losses_kd=losses_kd, losses_mse=losses_mse,
-                losses_its=losses_its, losses_gts=losses_gts,
-                # losses_gtt=losses_gtt,
-                top1=top1, top5=top5))
-            sys.stdout.flush()
-
+            # print info
+            if idx % opt.print_freq == 0:
+                print('Epoch: [{epoch}][{idx}/{batch_num}]\t'
+                      'Time {batch_time.val:.3f} ({batch_time.avg:.3f})\t'
+                      'Gpu {gpu} ({gpu})\n'
+                      'Loss {loss.val:.4f} ({loss.avg:.4f})\t'
+                      'losses_cls {losses_cls.val:.4f} ({losses_cls.avg:.4f})\t'
+                      'losses_kl {losses_kl.val:.4f} ({losses_kl.avg:.4f})\t'
+                      'losses_kd {losses_kd.val:.4f} ({losses_kd.avg:.4f})\t'
+                      'losses_mse {losses_mse.val:.4f} ({losses_mse.avg:.4f})\n'
+                      'losses_its {losses_its.val:.4f} ({losses_its.avg:.4f})\t'
+                      'losses_gts {losses_gts.val:.4f} ({losses_gts.avg:.4f})\t'
+                # 'losses_gtt {losses_gtt.val:.4f} ({losses_gtt.avg:.4f})\t'
+                      'Acc@1 {top1.val:.3f} ({top1.avg:.3f})\t'
+                      'Acc@5 {top5.val:.3f} ({top5.avg:.3f})'.format(
+                    epoch=epoch, idx=idx, batch_num=len(train_loader), batch_time=batch_time, gpu=opt.gpu,
+                    loss=losses, losses_cls=losses_cls, losses_kl=losses_div, losses_kd=losses_kd, losses_mse=losses_mse,
+                    losses_its=losses_its, losses_gts=losses_gts,
+                    # losses_gtt=losses_gtt,
+                    top1=top1, top5=top5))
+                sys.stdout.flush()
+        else:
+            # print info
+            if idx % opt.print_freq == 0:
+                print('Epoch: [{epoch}][{idx}/{batch_num}]\t'
+                      'Time {batch_time.val:.3f} ({batch_time.avg:.3f})\t'
+                      'Gpu {gpu} ({gpu})\n'
+                      'Loss {loss.val:.4f} ({loss.avg:.4f})\t'
+                      'losses_cls {losses_cls.val:.4f} ({losses_cls.avg:.4f})\t'
+                      'losses_kl {losses_kl.val:.4f} ({losses_kl.avg:.4f})\t'
+                      'losses_kd {losses_kd.val:.4f} ({losses_kd.avg:.4f})\t'
+                      'losses_mse {losses_mse.val:.4f} ({losses_mse.avg:.4f})\n'
+                      # 'losses_its {losses_its.val:.4f} ({losses_its.avg:.4f})\t'
+                      # 'losses_gts {losses_gts.val:.4f} ({losses_gts.avg:.4f})\t'
+                # 'losses_gtt {losses_gtt.val:.4f} ({losses_gtt.avg:.4f})\t'
+                      'Acc@1 {top1.val:.3f} ({top1.avg:.3f})\t'
+                      'Acc@5 {top5.val:.3f} ({top5.avg:.3f})'.format(
+                    epoch=epoch, idx=idx, batch_num=len(train_loader), batch_time=batch_time, gpu=opt.gpu,
+                    loss=losses, losses_cls=losses_cls, losses_kl=losses_div, losses_kd=losses_kd,
+                    losses_mse=losses_mse,
+                    # losses_its=losses_its, losses_gts=losses_gts,
+                    # losses_gtt=losses_gtt,
+                    top1=top1, top5=top5))
+                sys.stdout.flush()
     train_loss_dict = {"train_loss": losses.avg, "losses_cls": losses_cls.avg, "losses_div": losses_div.avg,
                        "losses_mse": losses_mse.avg, "losses_kd": losses_kd.avg,
                        # "losses_its": losses_its.avg, "losses_gts": losses_gts.avg,

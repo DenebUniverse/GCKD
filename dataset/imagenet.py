@@ -14,7 +14,7 @@ def get_data_folder(dataset='imagenet'):
     """
     return the path to store the data
     """
-    data_folder = '../../../data/Imagenet'
+    data_folder = '../../../wangbo/data/imagenet'
 
     if not os.path.isdir(data_folder):
         os.makedirs(data_folder)
