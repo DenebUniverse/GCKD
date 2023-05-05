@@ -252,13 +252,13 @@ def train_distill(epoch, train_loader, module_list, criterion_list, optimizer_li
                       'losses_mse {losses_mse.val:.4f} ({losses_mse.avg:.4f})\n'
                       'losses_its {losses_its.val:.4f} ({losses_its.avg:.4f})\t'
                       'losses_gts {losses_gts.val:.4f} ({losses_gts.avg:.4f})\t'
-                # 'losses_gtt {losses_gtt.val:.4f} ({losses_gtt.avg:.4f})\t'
+                      'losses_gtt {losses_gtt.val:.4f} ({losses_gtt.avg:.4f})\t'
                       'Acc@1 {top1.val:.3f} ({top1.avg:.3f})\t'
                       'Acc@5 {top5.val:.3f} ({top5.avg:.3f})'.format(
                     epoch=epoch, idx=idx, batch_num=len(train_loader), batch_time=batch_time, gpu=opt.gpu,
                     loss=losses, losses_cls=losses_cls, losses_kl=losses_div, losses_kd=losses_kd, losses_mse=losses_mse,
                     losses_its=losses_its, losses_gts=losses_gts,
-                    # losses_gtt=losses_gtt,
+                    losses_gtt=losses_gtt,
                     top1=top1, top5=top5))
                 sys.stdout.flush()
         else:

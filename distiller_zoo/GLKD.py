@@ -210,6 +210,7 @@ class GL_MoCo(nn.Module):
     def __init__(self, s_dim, t_dim=128, K=4096, m=0.99, T=0.1, bn_splits=8, symmetric=False, opt=None):
         super(GL_MoCo, self).__init__()
 
+        self.gama=opt.gama
         self.K = K
         self.m = m
         self.T = T
@@ -471,6 +472,7 @@ class GCKD(nn.Module):
     def __init__(self, s_dim, t_dim=128, K=4096, m=0.99, T=0.1, bn_splits=8, symmetric=False, opt=None):
         super(GCKD, self).__init__()
 
+        self.gama=opt.gama
         self.K = K
         self.m = m
         self.T = T
@@ -601,7 +603,10 @@ class GCKD(nn.Module):
         q_g = self.gnn_q(Graph_q)[:batch_size]  # queries: NxC
         q_g = nn.functional.normalize(q_g, dim=1)  # already normalized
 
-        k_g = self.gnn_k(Graph_k)[:batch_size]  # queries: NxC
+        # k_g = self.gnn_k(Graph_k)[:batch_size]  # queries: NxC
+        embedding_g=self.gnn_k(Graph_k)  # queries: NxC
+        k_g =embedding_g[:batch_size]
+        queue_g=embedding_g[batch_size:]#
         # # compute key features
         # with torch.no_grad():  # no gradient to keys
         #     # shuffle for making use of BN
@@ -619,7 +624,8 @@ class GCKD(nn.Module):
         # positive logits: Nx1
         l_pos = torch.einsum('nc,nc->n', [q_g, k_g]).unsqueeze(-1)
         # negative logits: NxK
-        l_neg = torch.einsum('nc,ck->nk', [q_g, self.queue.clone().detach()])
+        # l_neg = torch.einsum('nc,ck->nk', [q_g, self.queue.clone().detach()])
+        l_neg = torch.einsum('nc,ck->nk', [q_g, queue_g.T])
 
         # logits: Nx(1+K)
         logits = torch.cat([l_pos, l_neg], dim=1)
@@ -633,7 +639,7 @@ class GCKD(nn.Module):
         loss_gts = nn.CrossEntropyLoss().cuda()(logits, labels)
 
         # total loss
-        loss = loss_its + loss_gts
+        loss = loss_its + loss_gts*self.gama
         return loss, q, k, loss_its, loss_gts
 
     def contrastive_adv(self, im_q):
@@ -674,7 +680,9 @@ class GCKD(nn.Module):
         q_g = self.gnn_q(Graph_q)[:batch_size]  # queries: NxC
         q_g = nn.functional.normalize(q_g, dim=1)  # already normalized
 
-        k_g = self.gnn_k(Graph_k)[:batch_size]  # queries: NxC
+        embedding_g=self.gnn_k(Graph_k)  # queries: NxC
+        k_g =embedding_g[:batch_size]
+        queue_g=embedding_g[batch_size:]#
         k_g = nn.functional.normalize(k_g, dim=1)
 
         # compute logits
@@ -682,7 +690,8 @@ class GCKD(nn.Module):
         # positive logits: Nx1
         l_pos = torch.einsum('nc,nc->n', [q_g, k_g]).unsqueeze(-1)
         # negative logits: NxK
-        l_neg = torch.einsum('nc,ck->nk', [q_g, self.queue.clone().detach()])
+        # l_neg = torch.einsum('nc,ck->nk', [q_g, self.queue.clone().detach()])
+        l_neg = torch.einsum('nc,ck->nk', [q_g, queue_g.T])
 
         # logits: Nx(1+K)
         logits = torch.cat([l_pos, l_neg], dim=1)
@@ -695,7 +704,7 @@ class GCKD(nn.Module):
 
         loss_gtt = nn.CrossEntropyLoss().cuda()(logits, labels)
 
-        return loss_gtt
+        return loss_gtt*self.gama
 
     def forward_st(self, ims, imt):
         """

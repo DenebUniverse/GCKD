@@ -20,13 +20,15 @@ import torch.backends.cudnn as cudnn
 # import tensorboard_logger as tb_logger
 from torch.utils.tensorboard import SummaryWriter
 
+from dataset.tinyimagenet import get_tinyimagenet_dataloader, get_tinyimagenet_dataloaders_sample
+from dataset.imagenet_dali import get_dali_data_loader
+from dataset.tinyimagenet_dali import get_tiny_dali_data_loader
 from distiller_zoo.GLKD import GL_MoCo, GCKD
 from models import model_dict
 from distiller_zoo.SimKD import ConvReg, SelfA, SRRL, SimKD
 
 from dataset.cifar100 import get_cifar100_dataloaders, get_cifar100_dataloaders_sample
 from dataset.imagenet import get_imagenet_dataloader, get_dataloader_sample
-from dataset.imagenet_dali import get_dali_data_loader
 
 from helper.loops import train_distill as train, validate_vanilla, validate_distill
 from helper.util import save_dict_to_json, reduce_tensor, adjust_learning_rate
@@ -34,7 +36,7 @@ from helper.util import save_dict_to_json, reduce_tensor, adjust_learning_rate
 from crd.criterion import CRDLoss
 from distiller_zoo import DistillKL, HintLoss, Attention, Similarity, VIDLoss, SemCKDLoss
 
-split_symbol = '~' if os.name == 'nt' else ':'
+split_symbol = '_'
 
 
 def parse_option():
@@ -56,7 +58,7 @@ def parse_option():
     parser.add_argument('--cos', action='store_true', default=None, help='use cosine lr schedule')
 
     # dataset and model
-    parser.add_argument('--dataset', type=str, default='cifar100', choices=['cifar100', 'imagenet'], help='dataset')
+    parser.add_argument('--dataset', type=str, default='cifar100', choices=['cifar100', 'imagenet','tinyimagenet'], help='dataset')
     parser.add_argument('--model_s', type=str, default='resnet8x4')
     parser.add_argument('--path_t', type=str, default=None, help='teacher model snapshot')
 
@@ -71,6 +73,7 @@ def parse_option():
     parser.add_argument('-d', '--div', type=float, default=1.0, help='weight balance for KD')
     parser.add_argument('-m', '--mu', type=float, default=None, help='weight balance for feature l2 loss')
     parser.add_argument('-b', '--beta', type=float, default=0.0, help='weight balance for other losses')
+    parser.add_argument('-r', '--gama', type=float, default=1.0, help='weight balance for other losses')
     parser.add_argument('-f', '--factor', type=int, default=2, help='factor size of SimKD')
     parser.add_argument('-s', '--soft', type=float, default=1.0, help='attention scale of SemCKD')
 
@@ -146,13 +149,13 @@ def parse_option():
     setup_seed(opt.seed)
 
     # model_name_template = split_symbol.join(['S', '{}_T', '{}_{}_{}_r', '{}_a', '{}_b', '{}_{}'])
-    template = 'S_{}-T_{}-D_{}_{}-M_{}_{}-G_{}_{}_{}-A_{}-adv_{}_{}_{}-L_{}-c_{}-d_{}-m_{}-b_{}-lr_{}-clT_{}-kdT_{}-{}_{}'
+    template = 'S_{}-T_{}-D_{}_{}-M_{}_{}-G_{}_{}_{}-A_{}-adv_{}_{}_{}-L_{}-c_{}-d_{}-m_{}-b_{}-r_{}-lr_{}-clT_{}-kdT_{}-{}_{}'
     opt.model_name = template.format(opt.model_s, opt.model_t, opt.dataset, opt.batch_size,
                                      opt.distill, opt.last_feature,
                                      opt.gnnlayer, opt.layers, opt.gnnencoder, opt.adj_k,
                                      opt.gadv, opt.NPerturb, opt.EPerturb,
                                      opt.loss_func,
-                                     opt.cls, opt.div, opt.mu, opt.beta,
+                                     opt.cls, opt.div, opt.mu, opt.beta,opt.gama,
                                      opt.cos, opt.cl_T, opt.kd_T, opt.seed, opt.trial,
                                      # opt.cls, opt.div, opt.beta, opt.trial
                                      )
@@ -204,7 +207,7 @@ def main():
     print("tensorboard --logdir " + opt.tb_folder + "/tb_logs")
     tb_writer = SummaryWriter(log_dir=opt.tb_folder + '/tb_logs', comment='GLD')
     with open(os.path.join(opt.tb_path, 'tensorbroad.txt'), 'a+') as f:
-        f.write("tensorboard --logdir " + opt.tb_folder + "/tb_logs\n")
+        f.write("tensorboard --logdir " + opt.tb_folder + "/tb_logs \n")
     save_file = os.path.join(opt.tb_path, opt.model_name, 'log{trial}.csv'.format(trial=opt.trial))
     with open(save_file, 'a+', newline='') as f:
         writer = csv.writer(f)
@@ -253,6 +256,7 @@ def main_worker(gpu, ngpus_per_node, opt,tb_writer=None):
     n_cls = {
         'cifar100': 100,
         'imagenet': 1000,
+        'tinyimagenet':200,
     }.get(opt.dataset, None)
 
     model_t = load_teacher(opt.path_t, n_cls, opt.gpu, opt)
@@ -265,6 +269,8 @@ def main_worker(gpu, ngpus_per_node, opt,tb_writer=None):
         data = torch.randn(2, 3, 32, 32)
     elif opt.dataset == 'imagenet':
         data = torch.randn(2, 3, 224, 224)
+    elif opt.dataset == 'tinyimagenet':
+        data = torch.randn(2, 3, 32, 32)
 
     model_t.eval()
     model_s.eval()
@@ -348,8 +354,7 @@ def main_worker(gpu, ngpus_per_node, opt,tb_writer=None):
         s_n = feat_s[-1].shape[1] if opt.last_feature == 1 else feat_s[-2].shape[1]
         t_n = feat_t[-1].shape[1] if opt.last_feature == 1 else feat_t[-2].shape[1]
         momentum_rate = {'one': 0, 'two': 1, 'momentum': 0.99}
-        criterion_kd = GCKD(s_dim=s_n, t_dim=t_n, m=momentum_rate[opt.gnnencoder],
-                            opt=opt)  # m momentum rate one:0 two:1 momentum 0.99
+        criterion_kd = GCKD(s_dim=s_n, t_dim=t_n, m=momentum_rate[opt.gnnencoder],opt=opt)  # m momentum rate one:0 two:1 momentum 0.99
         module_list.append(criterion_kd.transfer)
         trainable_list.append(criterion_kd.transfer)
     else:
@@ -430,6 +435,21 @@ def main_worker(gpu, ngpus_per_node, opt,tb_writer=None):
                                                                                   multiprocessing_distributed=opt.multiprocessing_distributed)
         else:
             train_loader, val_loader = get_dali_data_loader(opt)
+            pass
+    elif opt.dataset == 'tinyimagenet':
+        if opt.dali is None:
+            if opt.distill in ['crd']:
+                train_loader, val_loader, n_data = get_tinyimagenet_dataloaders_sample(batch_size=opt.batch_size,
+                                                                                   num_workers=opt.num_workers,
+                                                                                   k=opt.nce_k,
+                                                                                   mode=opt.mode)
+            else:
+                train_loader, val_loader, train_sampler = get_tinyimagenet_dataloader(dataset=opt.dataset,
+                                                                                      batch_size=opt.batch_size,
+                                                                                      num_workers=opt.num_workers,
+                                                                                      multiprocessing_distributed=opt.multiprocessing_distributed)
+        else:
+            train_loader, val_loader = get_tiny_dali_data_loader(opt)
             pass
     else:
         raise NotImplementedError(opt.dataset)
@@ -526,7 +546,11 @@ def main_worker(gpu, ngpus_per_node, opt,tb_writer=None):
                     'best_acc': best_acc,
                 }
                 if opt.distill == 'simkd':
-                    state['proj'] = trainable_list[-1].state_dict()
+                    state['proj'] = model_simkd.state_dict()
+                elif opt.distill == 'gckd':
+                    state['projector'] = criterion_kd.transfer.state_dict(),
+                    state['GNN_q']= criterion_kd.gnn_q.state_dict(),
+                    state['GNN_k']= criterion_kd.gnn_k.state_dict(),
                 save_file = os.path.join(opt.save_folder, '{}_best.pth'.format(opt.model_s))
 
                 test_merics = {'test_loss': test_loss,
@@ -550,7 +574,7 @@ def main_worker(gpu, ngpus_per_node, opt,tb_writer=None):
             # writer.writerow(header)
             row = [opt.model_t, opt.model_s, opt.dataset, opt.batch_size, opt.epochs, opt.distill, opt.last_feature,
                    opt.gnnlayer, opt.layers, opt.gnnencoder, opt.adj_k, opt.NPerturb, opt.EPerturb,
-                   opt.loss_func, opt.cls, opt.div, opt.mu, opt.beta,
+                   opt.loss_func, opt.cls, opt.div, opt.mu, opt.beta, opt.gama,
                    best_acc, opt.seed,]
             writer.writerow(row)
 
