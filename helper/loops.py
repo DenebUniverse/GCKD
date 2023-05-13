@@ -93,7 +93,7 @@ def train_distill(epoch, train_loader, module_list, criterion_list, optimizer_li
     losses_cls = AverageMeter()
     losses_div = AverageMeter()
     losses_kd = AverageMeter()
-    if opt.distill in ['srrl', 'simkd', 'gld', 'gckd']:
+    if opt.distill in ['crd','srrl', 'simkd', 'gld', 'gckd']:
         losses_mse = AverageMeter()
         if opt.distill in ['gld', 'gckd']:
             losses_its = AverageMeter()
@@ -131,7 +131,7 @@ def train_distill(epoch, train_loader, module_list, criterion_list, optimizer_li
             feat_t = [f.detach() for f in feat_t]
 
         cls_t = model_t.module.get_feat_modules()[-1] if opt.multiprocessing_distributed else \
-        model_t.get_feat_modules()[-1]
+            model_t.get_feat_modules()[-1]
         # cls + kl div
         loss_cls = criterion_cls(logit_s, labels)
         loss_div = criterion_div(logit_s, logit_t)
@@ -161,6 +161,7 @@ def train_distill(epoch, train_loader, module_list, criterion_list, optimizer_li
         elif opt.distill == 'crd':
             f_s = feat_s[-1]
             f_t = feat_t[-1]
+            loss_mse=criterion_mse(f_s, f_t)
             loss_kd = criterion_kd(f_s, f_t, index, contrast_idx)
         elif opt.distill == 'semckd':
             s_value, f_target, weight = module_list[1](feat_s[1:-1], feat_t[1:-1])
@@ -202,7 +203,7 @@ def train_distill(epoch, train_loader, module_list, criterion_list, optimizer_li
         losses_cls.update(loss_cls.item(), images.size(0))
         losses_div.update(loss_div.item(), images.size(0))
         losses_kd.update(loss_kd.item(), images.size(0))
-        if opt.distill in ['srrl', 'simkd', 'gld', 'gckd']:
+        if opt.distill in ['crd','srrl', 'simkd', 'gld', 'gckd']:
             losses_mse.update(loss_mse.item(), images.size(0))
             if opt.distill in ['gld', 'gckd']:
                 losses_its.update(loss_its.item(), images.size(0))
@@ -217,28 +218,41 @@ def train_distill(epoch, train_loader, module_list, criterion_list, optimizer_li
         # ===================backward=====================
         optimizer.zero_grad()
         loss.backward()
+        # GNN_optimizer.zero_grad()
         optimizer.step()
 
         if opt.distill in ['gld', 'gckd']:
             # train GNN to minimize contrastive loss
             ## forward
             # if len(index)>=opt.knn:
-            criterion_kd.use_forward_tt = True
-            loss_contrast_gtt = criterion_kd(trans_feat_s, feat_t[-1])
-            losses_gtt.update(loss_contrast_gtt.item(), images.size(0))
-            ## backward
-            GNN_optimizer.zero_grad()
-            loss_contrast_gtt.backward()
-            GNN_optimizer.step()
-            # train MPL to maximize contrastive loss
-            if opt.gadv == 'adgcl':
-                ## forward
+            # freeze epoch
+            if epoch == opt.lr_decay_epochs[0]:
+                # 将模型参数设置为不需要梯度计算
+                with torch.no_grad():
+                    for param in criterion_kd.gnn_q.parameters():
+                        param.requires_grad = False
+                    for param in criterion_kd.gnn_k.parameters():
+                        param.requires_grad = False
+                criterion_kd.gnn_q.eval()
+                criterion_kd.gnn_k.eval()
+            if epoch < opt.lr_decay_epochs[0]:
                 criterion_kd.use_forward_tt = True
-                loss_contrast_gtt = criterion_kd(epoch, f_s, logit_s, f_t, logit_t, index, contrast_idx, opt)
+                loss_contrast_gtt = criterion_kd(trans_feat_s, feat_t[-1])
+                losses_gtt.update(loss_contrast_gtt.item(), images.size(0))
                 ## backward
-                adversarial_optimizer.zero_grad()
-                (-loss_contrast_gtt).backward()
-                adversarial_optimizer.step()
+                GNN_optimizer.zero_grad()
+                loss_contrast_gtt.backward()
+                optimizer.zero_grad()
+                GNN_optimizer.step()
+                # train MPL to maximize contrastive loss
+                if opt.gadv == 'adgcl':
+                    ## forward
+                    criterion_kd.use_forward_tt = True
+                    loss_contrast_gtt = criterion_kd(trans_feat_s, feat_t[-1])
+                    ## backward
+                    adversarial_optimizer.zero_grad()
+                    (-loss_contrast_gtt).backward()
+                    adversarial_optimizer.step()
 
             # print info
             if idx % opt.print_freq == 0:
@@ -256,7 +270,8 @@ def train_distill(epoch, train_loader, module_list, criterion_list, optimizer_li
                       'Acc@1 {top1.val:.3f} ({top1.avg:.3f})\t'
                       'Acc@5 {top5.val:.3f} ({top5.avg:.3f})'.format(
                     epoch=epoch, idx=idx, batch_num=len(train_loader), batch_time=batch_time, gpu=opt.gpu,
-                    loss=losses, losses_cls=losses_cls, losses_kl=losses_div, losses_kd=losses_kd, losses_mse=losses_mse,
+                    loss=losses, losses_cls=losses_cls, losses_kl=losses_div, losses_kd=losses_kd,
+                    losses_mse=losses_mse,
                     losses_its=losses_its, losses_gts=losses_gts,
                     losses_gtt=losses_gtt,
                     top1=top1, top5=top5))
@@ -272,8 +287,8 @@ def train_distill(epoch, train_loader, module_list, criterion_list, optimizer_li
                       'losses_kl {losses_kl.val:.4f} ({losses_kl.avg:.4f})\t'
                       'losses_kd {losses_kd.val:.4f} ({losses_kd.avg:.4f})\t'
                       'losses_mse {losses_mse.val:.4f} ({losses_mse.avg:.4f})\n'
-                      # 'losses_its {losses_its.val:.4f} ({losses_its.avg:.4f})\t'
-                      # 'losses_gts {losses_gts.val:.4f} ({losses_gts.avg:.4f})\t'
+                # 'losses_its {losses_its.val:.4f} ({losses_its.avg:.4f})\t'
+                # 'losses_gts {losses_gts.val:.4f} ({losses_gts.avg:.4f})\t'
                 # 'losses_gtt {losses_gtt.val:.4f} ({losses_gtt.avg:.4f})\t'
                       'Acc@1 {top1.val:.3f} ({top1.avg:.3f})\t'
                       'Acc@5 {top5.val:.3f} ({top5.avg:.3f})'.format(
@@ -393,7 +408,7 @@ def validate_distill(val_loader, module_list, criterion, opt):
                 feat_t, _ = model_t(images, is_feat=True)
                 feat_t = [f.detach() for f in feat_t]
                 cls_t = model_t.module.get_feat_modules()[-1] if opt.multiprocessing_distributed else \
-                model_t.get_feat_modules()[-1]
+                    model_t.get_feat_modules()[-1]
                 _, _, output = module_list[1](feat_s[-2], feat_t[-2], cls_t)
             else:
                 output = model_s(images)

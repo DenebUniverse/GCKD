@@ -16,6 +16,20 @@
           </mappings>
         </serverdata>
       </paths>
+      <paths name="root@180.184.103.46:28271 password">
+        <serverdata>
+          <mappings>
+            <mapping deploy="/GCKD" local="$PROJECT_DIR$" web="/" />
+          </mappings>
+        </serverdata>
+      </paths>
+      <paths name="root@180.184.103.46:28271 password (1)">
+        <serverdata>
+          <mappings>
+            <mapping deploy="/GCKD" local="$PROJECT_DIR$" />
+          </mappings>
+        </serverdata>
+      </paths>
       <paths name="tongqiang@202.204.161.66:22 password">
         <serverdata>
           <mappings>

@@ -3,8 +3,10 @@ import argparse
 import matplotlib.pyplot as plt
 import os
 import pandas as pd
+from torch import nn
+import torch.nn.functional as F
 
-from distiller_zoo.GLKD import GCKD
+from distiller_zoo.GLKD import GCKD, SRRL, SimKD
 from models import model_dict
 
 
@@ -126,7 +128,8 @@ def get_model_name(model_path, n_cls=None):
         return name_match[1] + '_' + str(n_cls) if n_cls != None else name_match[1]
     segments = directory.split('_')
     if segments[0] == 'wrn':
-        return segments[0] + '_' + segments[1] + '_' + segments[2]
+        return segments[0] + '_' + segments[1] + '_' + segments[2]+ '_' + str(n_cls) \
+            if n_cls != None else segments[0] + '_' + segments[1] + '_' + segments[2]
     return segments[0] + '_' + str(n_cls) if n_cls != None else segments[0]
 
 
@@ -147,22 +150,23 @@ def plot_corr():
     transform = torchvision.transforms.Compose([torchvision.transforms.ToTensor()])
     cifar100_train = torchvision.datasets.CIFAR100(root='../../data/cifar-100-python', train=True, download=True,
                                                    transform=transform)
-    train_loader = torch.utils.data.DataLoader(cifar100_train, batch_size=int(len(cifar100_train) / 10), shuffle=False)
+    train_loader = torch.utils.data.DataLoader(cifar100_train, batch_size=int(len(cifar100_train) / 10), shuffle=True)
 
     n_cls = 100
-    teacher_path = './save/teachers/models/resnet32x4_vanilla/resnet32x4_best.pth'
-    # student_path = './save/students/models/S_resnet8x4-T_resnet32x4-D_cifar100_64-M_gckd_2-G_TAG_1_one-A_64-adv_None_0.1_0.0-L_None-c_1.0-d_1.0-m_1.0-b_3.0-lr_None-clT_0.07-kdT_4-46_1/resnet8x4_best.pth'
-    student_path = './save/students/models/S_resnet8x4-T_resnet32x4-D_cifar100_64-M_gckd_2-G_TAG_1_one-A_8-adv_None_0.1_0.0-L_None-c_1.0-d_1.0-m_1.0-b_3.0-r_1.0-lr_None-clT_0.07-kdT_4-160_1/resnet8x4_best.pth'
-    match = re.search(r"gckd_(\d+)-G", student_path)
-    if match:
-        last_feature = match.group(1)
-        print(last_feature)
-    else:
-        print("No match found.")
+    teacher_path = './save/teachers/models_240/wrn_40_2_vanilla/ckpt_epoch_240.pth'
+    # student_path = './save/students/models/S_resnet8x4-T_resnet32x4-D_cifar100_64-M_gckd_2-G_TAG_1_one-A_8-adv_None_0.1_0.0-L_None-c_1.0-d_1.0-m_1.0-b_3.0-r_1.0-lr_None-clT_0.07-kdT_4-160_1/resnet8x4_best.pth'
+    # student_path = './save/students/models/S_resnet8x4-T_resnet32x4-D_cifar100_64-M_gld-G_TAG_momentum-A_8-adv_None_0.1_0.0-L_None-c_1.0-d_1.0-m_1.0-b_3.0-lr_None-clT_0.07-kdT_4-2008_1/resnet8x4_best.pth'
+    student_path = './save/students/models/S_wrn_40_1-T_wrn_40_2-D_cifar100_64-M_gckd_1-G_TAG_2_momentum-A_8-adv_None_0.1_0.0-L_None-c_1.0-d_1.0-m_1.0-b_3.0-r_1.0-lr_None-clT_0.07-kdT_4-1756_1/wrn_40_1_best.pth'
 
-    # trans_feat_s, pred_feat_s = module_list[1](feat_s[-1], cls_t)
-    # trans_feat_s, trans_feat_t, pred_feat_s = module_list[1](feat_s[-2], feat_t[-2], cls_t)
 
+    # params
+    last_feature = 1
+    # match = re.search(r"gckd_(\d+)-G", student_path)
+    # if match:
+    #     last_feature = match.group(1)
+    #     print(last_feature)
+    # else:
+    #     print("No match found.")
 
     model_t = get_model_name(teacher_path, n_cls)
     model_s = get_model_name(student_path, n_cls)
@@ -176,28 +180,26 @@ def plot_corr():
     with open(student_path, 'rb') as f:
         buffer = io.BytesIO(f.read())
 
+    # load student
     checkpoint = torch.load(buffer)
     model_student = model_dict[model_s](num_classes=n_cls).to(device)
     model_student.load_state_dict(checkpoint['model'])
 
+    # load projector
 
-    if opt.dataset == 'cifar100':
-        data = torch.randn(2, 3, 32, 32)
-    elif opt.dataset == 'imagenet':
-        data = torch.randn(2, 3, 224, 224)
-    elif opt.dataset == 'tinyimagenet':
-        data = torch.randn(2, 3, 32, 32)
+    # 'cifar100':
+    data = torch.randn(2, 3, 32, 32).to(device)
+    model_teacher.eval()
+    model_student.eval()
+    feat_t, _ = model_teacher(data, is_feat=True)
+    feat_s, _ = model_student(data, is_feat=True)
 
-    model_t.eval()
-    model_s.eval()
-    feat_t, _ = model_t(data, is_feat=True)
-    feat_s, _ = model_s(data, is_feat=True)
+    s_dim = feat_s[-1].shape[1] if last_feature == 1 else feat_s[-2].shape[1]
+    t_dim = feat_t[-1].shape[1] if last_feature == 1 else feat_t[-2].shape[1]
 
-    s_n = feat_s[-1].shape[1] if last_feature == 1 else feat_s[-2].shape[1]
-    t_n = feat_t[-1].shape[1] if last_feature == 1 else feat_t[-2].shape[1]
-    parser = argparse.ArgumentParser('argument for training')
-    opt=parse_option()
-    criterion_kd = GCKD(s_dim=s_n, t_dim=t_n, m=0,opt=opt)  # m momentum rate one:0 two:1 momentum 0.99
+    transfer = SRRL(s_n=s_dim, t_n=t_dim).to(device) \
+        if last_feature == 1 else SimKD(s_n=s_dim, t_n=t_dim, factor=2).to(device)
+    transfer.load_state_dict(checkpoint['proj'][0])
 
     # Get class logits
     with torch.no_grad():
@@ -205,48 +207,112 @@ def plot_corr():
         images = images.to(device)
 
         feat_t, logit_t = model_teacher(images, is_feat=True)
-        feat_s, logit_s = model_student(images, is_feat=True)
-        trans_feat_s, trans_feat_t, pred_feat_s = transfer(feat_s[-2], feat_t[-2], cls_t)
-        pred_feat_s = cls_t(feat_s[-1])
+        feat_s, _ = model_student(images, is_feat=True)
+        # forward
+        if last_feature == 1:
+            trans_feat_s, pred_feat_s = transfer(feat_s[-1], cls_t)
+        else:
+            trans_feat_s, trans_feat_t, pred_feat_s = transfer(feat_s[-2], feat_t[-2], cls_t)
 
-        # logit_t=torch.softmax(logit_t, dim=1)
-        # pred_feat_s = torch.softmax(pred_feat_s, dim=1)
-        # feature_t=feat_t[-1].squeeze()
-        # print(feature_t.s)
+        pred_feat_s = cls_t(trans_feat_s)
 
-        corr_matrix_t = torch.einsum('ij,ik->ijk', logit_t, logit_t)
-        corr_matrix_t = torch.sum(corr_matrix_t, dim=0)/logit_t.shape[0]
-        corr_matrix_s = torch.einsum('ij,ik->ijk', pred_feat_s, pred_feat_s)
-        corr_matrix_s = torch.sum(corr_matrix_s, dim=0)/pred_feat_s.shape[0]
+        logit_t = logit_t.div(torch.norm(logit_t, p=2, dim=0, keepdim=True))
+        pred_feat_s = pred_feat_s.div(torch.norm(pred_feat_s, p=2, dim=0, keepdim=True))
 
 
-        # corr_matrix_s = torch.mm(pred_feat_s.t(), pred_feat_s) / pred_feat_s.shape[0]
-        # corr_matrix=torch.mm(logit_t.t(), pred_feat_s) / logit_t.shape[0]
+        for method in ['lsum', 'lmm']:#, 'psum', 'pmm']:
+            if method=='lsum':
+                # # method1:lsum
+                corr_matrix_t = torch.einsum('ij,ik->ijk', logit_t, logit_t)
+                corr_matrix_t = torch.sum(corr_matrix_t, dim=0) / logit_t.shape[0]
+                corr_matrix_s = torch.einsum('ij,ik->ijk', pred_feat_s, pred_feat_s)
+                corr_matrix_s = torch.sum(corr_matrix_s, dim=0) / pred_feat_s.shape[0]
+                corr_matrix_ts= torch.einsum('ij,ik->ijk', logit_t, pred_feat_s)
+                corr_matrix_ts= torch.sum(corr_matrix_ts, dim=0) / pred_feat_s.shape[0]
 
-        diff_corr_matrix=corr_matrix_t-corr_matrix_s
+                # corr_matrix_t = torch.einsum('ij,ik->ijk', logit_t, logit_t)/ logit_t.shape[0]
+                # corr_matrix_s = torch.einsum('ij,ik->ijk', pred_feat_s, pred_feat_s)/ logit_t.shape[0]
+                # corr_matrix_ts = torch.einsum('ij,ik->ijk', pred_feat_s, logit_t) / logit_t.shape[0]
+                diff_corr_matrix = corr_matrix_t - corr_matrix_s
+                # diff_corr_matrix = torch.sum(diff_corr_matrix, dim=0)
+
+            elif method=='lmm':
+                # method2:lmm
+                corr_matrix_t = torch.mm(logit_t.t(), logit_t) #/ logit_t.shape[0]
+                corr_matrix_s = torch.mm(pred_feat_s.t(), pred_feat_s) #/ pred_feat_s.shape[0]
+                corr_matrix_ts = torch.mm(logit_t.t(), pred_feat_s) #/ logit_t.shape[0]
+                diff_corr_matrix = corr_matrix_t - corr_matrix_s
+            # elif method=='psum':
+            #     # method3:psum
+            #     p_t=F.softmax(logit_t /0.07, dim=1)
+            #     p_s = F.softmax(pred_feat_s / 0.07, dim=1)
+            #
+            #     corr_matrix_t = torch.einsum('ij,ik->ijk', p_t, p_t)
+            #     corr_matrix_t = torch.sum(corr_matrix_t, dim=0) / p_t.shape[0]
+            #     corr_matrix_s = torch.einsum('ij,ik->ijk', p_s, p_s)
+            #     corr_matrix_s = torch.sum(corr_matrix_s, dim=0) / p_s.shape[0]
+            #     corr_matrix_ts = torch.einsum('ij,ik->ijk', p_t, p_s)
+            #     corr_matrix_ts = torch.sum(corr_matrix_ts, dim=0) / p_s.shape[0]
+            #     diff_corr_matrix = corr_matrix_t - corr_matrix_s
+            # elif method=='pmm':
+            #     # method4:pmm
+            #     p_t=F.softmax(logit_t /0.07, dim=1)
+            #     p_s = F.softmax(pred_feat_s / 0.07, dim=1)
+            #
+            #     corr_matrix_t = torch.mm(p_t.t(), p_t) / p_t.shape[0]
+            #     corr_matrix_s = torch.mm(p_s.t(), p_s) / p_s.shape[0]
+            #     corr_matrix_ts = torch.mm(p_t.t(), p_s) / p_t.shape[0]
+            #     diff_corr_matrix = corr_matrix_t - corr_matrix_s
 
 
-    # sns.heatmap(corr_matrix.cpu().numpy(), cmap='coolwarm')
-    # plt.savefig('./save/plots/heatmap_l-T_{}-S_{}-sim.png'.format(get_model_name(teacher_path), get_model_name(student_path)))
 
+            out_path = './save/plot/heatmap2_'+method+'-'
+            print(diff_corr_matrix.shape)
+            # corr diff
+            sns.heatmap(diff_corr_matrix.cpu().numpy(),center=0, cmap='PuOr')#,vmin=-0.3,vmax=0.3)
+            plt.savefig(out_path + 'diff-T_{}-S_{}.png'
+                        .format(get_model_name(teacher_path), get_model_name(student_path)))
+            plt.cla()
+            plt.clf()
 
-    print(diff_corr_matrix.shape)
-    # # Plot heatmap
-    # sns.heatmap(diff_corr_matrix.cpu().numpy(), cmap='coolwarm')
-    # # Save heatmap to file
-    # plt.savefig('./save/plots/heatmap_l-T_{}-S_{}-dif.png'.format(get_model_name(teacher_path),get_model_name(student_path)))
+            # # corr teacher
+            # sns.heatmap(corr_matrix_t.cpu().numpy(),center=0)#, cmap='coolwarm')
+            # plt.savefig(out_path + 'T_{}-T_{}.png'
+            #             .format(get_model_name(teacher_path), get_model_name(teacher_path)))
+            # plt.cla()
+            # plt.clf()
+            #
+            # # corr student
+            # sns.heatmap(corr_matrix_s.cpu().numpy(),center=0)#, cmap='coolwarm')
+            # plt.savefig(out_path + 'S_{}-S_{}.png'
+            #             .format(get_model_name(student_path), get_model_name(student_path)))
+            # plt.cla()
+            # plt.clf()
 
-
-    # # Plot heatmap
-    # sns.heatmap(corr_matrix_t.cpu().numpy(), cmap='coolwarm')
-    # # Save heatmap to file
-    # plt.savefig(
-    #     './save/plots/heatmap_l-T_{}-T_{}.png'.format(get_model_name(teacher_path), get_model_name(teacher_path)))
-
-    # Plot heatmap
-    sns.heatmap(corr_matrix_s.cpu().numpy(), cmap='coolwarm')
-    # Save heatmap to file
-    plt.savefig(
-        './save/plots/heatmap_l-S_{}-S_{}.png'.format(get_model_name(student_path), get_model_name(student_path)))
+            # # corr ts
+            # sns.heatmap(corr_matrix_ts.cpu().numpy(),center=0)#, cmap='coolwarm')
+            # plt.savefig(out_path + 'T_{}-S_{}.png'
+            #             .format(get_model_name(teacher_path), get_model_name(student_path)))
+            # plt.cla()
+            # plt.clf()
 
 plot_corr()
+
+def line_ploter():
+    import seaborn as sns
+    sns.set_theme(style="darkgrid")
+    d = {'log2 k': [3, 4,5,6,7,3, 4,5,6,7],
+         'acc': [75.87, 75.84,75.99,76.44,62.82,
+                 76.65,76.4,75.93,76.15,62],
+         'type':['share','share','share','share','share','momentum','momentum','momentum','momentum','momentum']}
+    df = pd.DataFrame(data=d)
+
+    # Plot the responses for different events and regions
+    sns.lineplot(x="log_2^k", y="acc",
+                 hue="type", style="type",
+                 markers=True,
+                 data=df)
+    plt.xticks([3, 4,5,6,7])
+    plt.show()
+
+# line_ploter()

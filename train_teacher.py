@@ -12,7 +12,7 @@ import torch.optim as optim
 import torch.distributed as dist
 import torch.multiprocessing as mp
 import torch.backends.cudnn as cudnn
-import tensorboard_logger as tb_logger
+# import tensorboard_logger as tb_logger
 
 from models import model_dict
 from dataset.cifar100 import get_cifar100_dataloaders
@@ -127,7 +127,8 @@ def main_worker(gpu, ngpus_per_node, opt):
     }.get(opt.dataset, None)
     
     try:
-        model = model_dict[opt.model](num_classes=n_cls)
+        print(opt.model)
+        model = model_dict[opt.model+'_1000'](num_classes=n_cls,pretrained=True)
     except KeyError:
         print("This model is not supported.")
 
@@ -179,9 +180,9 @@ def main_worker(gpu, ngpus_per_node, opt):
     else:
         raise NotImplementedError(opt.dataset)
 
-    # tensorboard
-    if not opt.multiprocessing_distributed or opt.rank % ngpus_per_node == 0:
-        logger = tb_logger.Logger(logdir=opt.tb_folder, flush_secs=2)
+    # # tensorboard
+    # if not opt.multiprocessing_distributed or opt.rank % ngpus_per_node == 0:
+    #     logger = tb_logger.Logger(logdir=opt.tb_folder, flush_secs=2)
 
     # routine
     for epoch in range(1, opt.epochs + 1):
@@ -205,8 +206,8 @@ def main_worker(gpu, ngpus_per_node, opt):
         if not opt.multiprocessing_distributed or opt.rank % ngpus_per_node == 0:
             print(' * Epoch {}, Acc@1 {:.3f}, Acc@5 {:.3f}, Time {:.2f}'.format(epoch, train_acc, train_acc_top5, time2 - time1))
 
-            logger.log_value('train_acc', train_acc, epoch)
-            logger.log_value('train_loss', train_loss, epoch)
+            # logger.log_value('train_acc', train_acc, epoch)
+            # logger.log_value('train_loss', train_loss, epoch)
 
         test_acc, test_acc_top5, test_loss = validate_vanilla(val_loader, model, criterion, opt)
 
@@ -216,10 +217,10 @@ def main_worker(gpu, ngpus_per_node, opt):
 
         if not opt.multiprocessing_distributed or opt.rank % ngpus_per_node == 0:
             print(' ** Acc@1 {:.3f}, Acc@5 {:.3f}'.format(test_acc, test_acc_top5))
-            
-            logger.log_value('test_acc', test_acc, epoch)
-            logger.log_value('test_acc_top5', test_acc_top5, epoch)
-            logger.log_value('test_loss', test_loss, epoch)
+            #
+            # logger.log_value('test_acc', test_acc, epoch)
+            # logger.log_value('test_acc_top5', test_acc_top5, epoch)
+            # logger.log_value('test_loss', test_loss, epoch)
 
             # save the best model
             if test_acc > best_acc:

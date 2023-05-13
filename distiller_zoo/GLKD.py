@@ -12,6 +12,7 @@ import dgl.backend as B
 # import dgl.function as fn
 # import dgl
 # import numpy as np
+from torch.nn import Sequential, Linear, ReLU
 
 eps = 1e-7
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -502,6 +503,9 @@ class GCKD(nn.Module):
         self.register_buffer("queue", torch.randn(t_dim, K))
         self.queue = nn.functional.normalize(self.queue, dim=0)
         self.register_buffer("queue_ptr", torch.zeros(1, dtype=torch.long))
+
+        self.mlp_edge_model = Sequential(Linear(t_dim * 2, t_dim),
+                                         ReLU(), Linear(t_dim, 1))
 
     @torch.no_grad()
     def _momentum_update_key_encoder(self):

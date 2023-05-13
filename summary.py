@@ -38,4 +38,4 @@ for file in files:
     res_dict['train_loss'] = loss['train_loss']
     res_dict['test_loss'] = loss['test_loss']
     summary = summary.append(res_dict, ignore_index=True)
-summary.to_csv(in_dirs+"summary0.csv")
+summary.to_csv(in_dirs+"summary00.csv")

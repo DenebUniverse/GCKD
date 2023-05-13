@@ -20,7 +20,7 @@ import torch.backends.cudnn as cudnn
 # import tensorboard_logger as tb_logger
 from torch.utils.tensorboard import SummaryWriter
 
-from dataset.tinyimagenet import get_tinyimagenet_dataloader, get_tinyimagenet_dataloaders_sample
+from dataset.tinyimagenet import get_tinyimagenet_dataloader
 from dataset.imagenet_dali import get_dali_data_loader
 from dataset.tinyimagenet_dali import get_tiny_dali_data_loader
 from distiller_zoo.GLKD import GL_MoCo, GCKD
@@ -58,7 +58,8 @@ def parse_option():
     parser.add_argument('--cos', action='store_true', default=None, help='use cosine lr schedule')
 
     # dataset and model
-    parser.add_argument('--dataset', type=str, default='cifar100', choices=['cifar100', 'imagenet','tinyimagenet'], help='dataset')
+    parser.add_argument('--dataset', type=str, default='cifar100', choices=['cifar100', 'imagenet', 'tinyimagenet'],
+                        help='dataset')
     parser.add_argument('--model_s', type=str, default='resnet8x4')
     parser.add_argument('--path_t', type=str, default=None, help='teacher model snapshot')
 
@@ -89,7 +90,7 @@ def parse_option():
 
     # GCL
     # graph contrastive
-    parser.add_argument('--gadv', default='None', type=str, choices=['adgcl', 'NPerturb', 'EPerturb', 'None'],
+    parser.add_argument('--gadv', default='None', type=str, choices=['adgcl', 'None'],
                         help='graph adverisal mode')
     parser.add_argument('--NPerturb', default=0.1, type=float)
     parser.add_argument('--EPerturb', default=0.1, type=float)
@@ -155,7 +156,7 @@ def parse_option():
                                      opt.gnnlayer, opt.layers, opt.gnnencoder, opt.adj_k,
                                      opt.gadv, opt.NPerturb, opt.EPerturb,
                                      opt.loss_func,
-                                     opt.cls, opt.div, opt.mu, opt.beta,opt.gama,
+                                     opt.cls, opt.div, opt.mu, opt.beta, opt.gama,
                                      opt.cos, opt.cl_T, opt.kd_T, opt.seed, opt.trial,
                                      # opt.cls, opt.div, opt.beta, opt.trial
                                      )
@@ -173,7 +174,7 @@ def parse_option():
     return opt
 
 
-def get_teacher_name(model_path,n_cls=None):
+def get_teacher_name(model_path, n_cls=None):
     """parse teacher name"""
     directory = model_path.split('/')[-2]
     pattern = ''.join(['S', split_symbol, '(.+)', '_T', split_symbol])
@@ -182,16 +183,17 @@ def get_teacher_name(model_path,n_cls=None):
         return name_match[1]
     segments = directory.split('_')
     if segments[0] == 'wrn':
-        return segments[0] + '_' + segments[1] + '_' + segments[2]
-    return segments[0]+'_'+str(n_cls) if  n_cls != None else segments[0]
+        return segments[0] + '_' + segments[1] + '_' + segments[2] + '_' + str(n_cls) \
+            if n_cls is not None else segments[0] + '_' + segments[1] + '_' + segments[2]
+    return segments[0] + '_' + str(n_cls) if n_cls != None else segments[0]
 
 
 def load_teacher(model_path, n_cls, gpu=None, opt=None):
     print('==> loading teacher model')
-    model_t = get_teacher_name(model_path,n_cls)
+    model_t = get_teacher_name(model_path, n_cls)
     model = model_dict[model_t](num_classes=n_cls)
     map_location = None if gpu is None else {'cuda:0': 'cuda:%d' % (gpu if opt.multiprocessing_distributed else 0)}
-    model.load_state_dict(torch.load(model_path, map_location=map_location)['model'])
+    model.load_state_dict(torch.load(model_path, map_location=map_location)['model'], strict=False)
     print('==> done')
     return model
 
@@ -213,7 +215,7 @@ def main():
         writer = csv.writer(f)
         writer.writerow(
             ["epoch", "train_acc", "train_loss", "test_acc", "test_acc_top5", "test_loss",
-             "losses_cls", "losses_kl", "losses_gtt", "losses_its", "losses_gts", "losses_mse",
+             "losses_cls", "losses_kl", "losses_mse", "losses_gtt", "losses_its", "losses_gts",
              ])
 
     # ASSIGN CUDA_ID
@@ -230,15 +232,15 @@ def main():
         # main_worker process function
         mp.spawn(main_worker, nprocs=ngpus_per_node, args=(ngpus_per_node, opt))
     else:
-        main_worker(None if ngpus_per_node > 1 else opt.gpu_id, ngpus_per_node, opt,tb_writer)
+        main_worker(None if ngpus_per_node > 1 else opt.gpu_id, ngpus_per_node, opt, tb_writer)
     # main_worker(None if ngpus_per_node > 1 else opt.gpu_id, ngpus_per_node, opt)
 
 
-def main_worker(gpu, ngpus_per_node, opt,tb_writer=None):
+def main_worker(gpu, ngpus_per_node, opt, tb_writer=None):
     global best_acc, total_time
     opt.gpu = int(gpu)
     opt.gpu_id = int(gpu)
-    opt.tb_writer=tb_writer
+    opt.tb_writer = tb_writer
 
     if opt.gpu is not None:
         print("Use GPU: {} for training".format(opt.gpu))
@@ -256,12 +258,12 @@ def main_worker(gpu, ngpus_per_node, opt,tb_writer=None):
     n_cls = {
         'cifar100': 100,
         'imagenet': 1000,
-        'tinyimagenet':200,
+        'tinyimagenet': 200,
     }.get(opt.dataset, None)
 
     model_t = load_teacher(opt.path_t, n_cls, opt.gpu, opt)
     try:
-        model_s = model_dict[opt.model_s+'_'+str(n_cls)](num_classes=n_cls)
+        model_s = model_dict[opt.model_s + '_' + str(n_cls)](num_classes=n_cls)
     except KeyError:
         print("This model is not supported.")
 
@@ -354,7 +356,8 @@ def main_worker(gpu, ngpus_per_node, opt,tb_writer=None):
         s_n = feat_s[-1].shape[1] if opt.last_feature == 1 else feat_s[-2].shape[1]
         t_n = feat_t[-1].shape[1] if opt.last_feature == 1 else feat_t[-2].shape[1]
         momentum_rate = {'one': 0, 'two': 1, 'momentum': 0.99}
-        criterion_kd = GCKD(s_dim=s_n, t_dim=t_n, m=momentum_rate[opt.gnnencoder],opt=opt)  # m momentum rate one:0 two:1 momentum 0.99
+        criterion_kd = GCKD(s_dim=s_n, t_dim=t_n, m=momentum_rate[opt.gnnencoder],
+                            opt=opt)  # m momentum rate one:0 two:1 momentum 0.99
         module_list.append(criterion_kd.transfer)
         trainable_list.append(criterion_kd.transfer)
     else:
@@ -439,10 +442,11 @@ def main_worker(gpu, ngpus_per_node, opt,tb_writer=None):
     elif opt.dataset == 'tinyimagenet':
         if opt.dali is None:
             if opt.distill in ['crd']:
-                train_loader, val_loader, n_data = get_tinyimagenet_dataloaders_sample(batch_size=opt.batch_size,
-                                                                                   num_workers=opt.num_workers,
-                                                                                   k=opt.nce_k,
-                                                                                   mode=opt.mode)
+                pass
+                # train_loader, val_loader, n_data = get_tinyimagenet_dataloaders_sample(batch_size=opt.batch_size,
+                #                                                                        num_workers=opt.num_workers,
+                #                                                                        k=opt.nce_k,
+                #                                                                        mode=opt.mode)
             else:
                 train_loader, val_loader, train_sampler = get_tinyimagenet_dataloader(dataset=opt.dataset,
                                                                                       batch_size=opt.batch_size,
@@ -486,7 +490,7 @@ def main_worker(gpu, ngpus_per_node, opt,tb_writer=None):
                                                                  optimizer_list, opt)
         time2 = time.time()
 
-        if opt.tb_writer!=None:
+        if opt.tb_writer != None:
             opt.tb_writer.add_scalar('acc/train_acc', train_acc, epoch)
             opt.tb_writer.add_scalar('acc/train_acc_top5', train_acc_top5, epoch)
             for k, v in loss_dict.items():
@@ -507,7 +511,7 @@ def main_worker(gpu, ngpus_per_node, opt,tb_writer=None):
         print('GPU %d validating' % (opt.gpu))
         test_acc, test_acc_top5, test_loss = validate_distill(val_loader, module_list, criterion_cls, opt)
 
-        if opt.tb_writer!=None:
+        if opt.tb_writer != None:
             opt.tb_writer.add_scalar('acc/test_acc', test_acc, epoch)
             opt.tb_writer.add_scalar('acc/test_acc_top5', test_acc_top5, epoch)
             for k, v in loss_dict.items():
@@ -515,16 +519,28 @@ def main_worker(gpu, ngpus_per_node, opt,tb_writer=None):
         save_file = os.path.join(opt.tb_path, opt.model_name, 'log{trial}.csv'.format(trial=opt.trial))
         with open(save_file, 'a+', newline='') as f:
             writer = csv.writer(f)
-            writer.writerow(
-                [epoch, round(train_acc, 5), round(train_loss, 5),
-                 round(test_acc, 5), round(test_acc_top5, 5), round(test_loss, 5),
-                 round(loss_dict['losses_cls'], 5),
-                 round(loss_dict['losses_div'], 5),
-                 round(loss_dict['losses_mse'], 5),
-                 # round(loss_dict['losses_gtt'], 5),
-                 # round(loss_dict['losses_its'], 5),
-                 # round(loss_dict['losses_gts'], 5),
-                 ])
+            if opt.distill=='GCKD':
+                writer.writerow(
+                    [epoch, round(train_acc, 5), round(train_loss, 5),
+                     round(test_acc, 5), round(test_acc_top5, 5), round(test_loss, 5),
+                     round(loss_dict['losses_cls'], 5),
+                     round(loss_dict['losses_div'], 5),
+                     round(loss_dict['losses_mse'], 5),
+                     round(loss_dict['losses_gtt'], 5),#
+                     round(loss_dict['losses_its'], 5),#
+                     round(loss_dict['losses_gts'], 5),#
+                     ])
+            else:
+                writer.writerow(
+                    [epoch, round(train_acc, 5), round(train_loss, 5),
+                     round(test_acc, 5), round(test_acc_top5, 5), round(test_loss, 5),
+                     round(loss_dict['losses_cls'], 5),
+                     round(loss_dict['losses_div'], 5),
+                     round(loss_dict['losses_mse'], 5),
+                     # round(loss_dict['losses_gtt'], 5),#
+                     # round(loss_dict['losses_its'], 5),#
+                     # round(loss_dict['losses_gts'], 5),#
+                     ])
 
         if opt.dali is not None:
             train_loader.reset()
@@ -548,9 +564,9 @@ def main_worker(gpu, ngpus_per_node, opt,tb_writer=None):
                 if opt.distill == 'simkd':
                     state['proj'] = model_simkd.state_dict()
                 elif opt.distill == 'gckd':
-                    state['projector'] = criterion_kd.transfer.state_dict(),
-                    state['GNN_q']= criterion_kd.gnn_q.state_dict(),
-                    state['GNN_k']= criterion_kd.gnn_k.state_dict(),
+                    state['proj'] = criterion_kd.transfer.state_dict(),
+                    state['GNN_q'] = criterion_kd.gnn_q.state_dict(),
+                    state['GNN_k'] = criterion_kd.gnn_k.state_dict(),
                 save_file = os.path.join(opt.save_folder, '{}_best.pth'.format(opt.model_s))
 
                 test_merics = {'test_loss': test_loss,
@@ -575,7 +591,7 @@ def main_worker(gpu, ngpus_per_node, opt,tb_writer=None):
             row = [opt.model_t, opt.model_s, opt.dataset, opt.batch_size, opt.epochs, opt.distill, opt.last_feature,
                    opt.gnnlayer, opt.layers, opt.gnnencoder, opt.adj_k, opt.NPerturb, opt.EPerturb,
                    opt.loss_func, opt.cls, opt.div, opt.mu, opt.beta, opt.gama,
-                   best_acc, opt.seed,]
+                   best_acc, opt.seed, ]
             writer.writerow(row)
 
         # save parameters
@@ -587,7 +603,7 @@ def main_worker(gpu, ngpus_per_node, opt,tb_writer=None):
         params_json_path = os.path.join(opt.save_folder, "parameters.json")
         save_dict_to_json(save_state, params_json_path)
 
-    if opt.tb_writer!=None:
+    if opt.tb_writer != None:
         opt.tb_writer.close()
 
 
