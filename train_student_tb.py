@@ -34,7 +34,7 @@ from helper.loops import train_distill as train, validate_vanilla, validate_dist
 from helper.util import save_dict_to_json, reduce_tensor, adjust_learning_rate
 
 from crd.criterion import CRDLoss
-from distiller_zoo import DistillKL, HintLoss, Attention, Similarity, VIDLoss, SemCKDLoss
+from distiller_zoo import DistillKL, HintLoss, Attention, Similarity, VIDLoss, SemCKDLoss, GNNLoss
 
 split_symbol = '_'
 
@@ -100,6 +100,7 @@ def parse_option():
     parser.add_argument('--gnnencoder', default=None, type=str, choices=['one', 'two', 'momentum'])
     parser.add_argument('--loss_func', default=None, type=str, choices=['softmax', 'cl'])
     parser.add_argument('--adj_k', type=int, default=20)
+    parser.add_argument('--queue', type=int, default=4096)
 
     # multiprocessing
     parser.add_argument('--dali', type=str, choices=['cpu', 'gpu'], default=None)
@@ -150,10 +151,11 @@ def parse_option():
     setup_seed(opt.seed)
 
     # model_name_template = split_symbol.join(['S', '{}_T', '{}_{}_{}_r', '{}_a', '{}_b', '{}_{}'])
-    template = 'S_{}-T_{}-D_{}_{}-M_{}_{}-G_{}_{}_{}-A_{}-adv_{}_{}_{}-L_{}-c_{}-d_{}-m_{}-b_{}-r_{}-lr_{}-clT_{}-kdT_{}-{}_{}'
+    template = 'S_{}-T_{}-D_{}_{}-M_{}_{}-G_{}_{}_{}-A_{}-Q_{}-adv_{}_{}_{}-L_{}-c_{}-d_{}-m_{}-b_{}-r_{}-lr_{}-clT_{}-kdT_{}-{}_{}'
     opt.model_name = template.format(opt.model_s, opt.model_t, opt.dataset, opt.batch_size,
                                      opt.distill, opt.last_feature,
                                      opt.gnnlayer, opt.layers, opt.gnnencoder, opt.adj_k,
+                                     opt.queue,
                                      opt.gadv, opt.NPerturb, opt.EPerturb,
                                      opt.loss_func,
                                      opt.cls, opt.div, opt.mu, opt.beta, opt.gama,
@@ -202,7 +204,7 @@ best_acc = 0
 total_time = time.time()
 
 
-def main():
+def main():#1设置超参数2设置在哪存结果3开始跑模型
     opt = parse_option()
 
     # tensorboard logger
@@ -237,6 +239,7 @@ def main():
 
 
 def main_worker(gpu, ngpus_per_node, opt, tb_writer=None):
+    #1加载模型 2加载策略loss 3optimizer 4加载数据集 5训练epoch
     global best_acc, total_time
     opt.gpu = int(gpu)
     opt.gpu_id = int(gpu)
@@ -319,6 +322,22 @@ def main_worker(gpu, ngpus_per_node, opt, tb_writer=None):
         module_list.append(criterion_kd.embed_t)
         trainable_list.append(criterion_kd.embed_s)
         trainable_list.append(criterion_kd.embed_t)
+    elif opt.distill == 'hkd':
+        opt.s_dim = feat_s[-1].shape[1]
+        opt.t_dim = feat_t[-1].shape[1]
+        if opt.dataset == 'cifar100':
+            opt.n_data = 50000
+        else:
+            opt.n_data = 1281167
+        criterion_kd = GNNLoss(opt)
+        module_list.append(criterion_kd.embed_s)
+        module_list.append(criterion_kd.embed_t)
+        module_list.append(criterion_kd.gnn_s)
+        module_list.append(criterion_kd.gnn_t)
+        trainable_list.append(criterion_kd.embed_s)
+        trainable_list.append(criterion_kd.embed_t)
+        trainable_list.append(criterion_kd.gnn_s)
+        trainable_list.append(criterion_kd.gnn_t)
     elif opt.distill == 'semckd':
         s_n = [f.shape[1] for f in feat_s[1:-1]]
         t_n = [f.shape[1] for f in feat_t[1:-1]]
@@ -356,7 +375,7 @@ def main_worker(gpu, ngpus_per_node, opt, tb_writer=None):
         s_n = feat_s[-1].shape[1] if opt.last_feature == 1 else feat_s[-2].shape[1]
         t_n = feat_t[-1].shape[1] if opt.last_feature == 1 else feat_t[-2].shape[1]
         momentum_rate = {'one': 0, 'two': 1, 'momentum': 0.99}
-        criterion_kd = GCKD(s_dim=s_n, t_dim=t_n, m=momentum_rate[opt.gnnencoder],
+        criterion_kd = GCKD(s_dim=s_n, t_dim=t_n, m=momentum_rate[opt.gnnencoder],K=opt.queue,
                             opt=opt)  # m momentum rate one:0 two:1 momentum 0.99
         module_list.append(criterion_kd.transfer)
         trainable_list.append(criterion_kd.transfer)
@@ -414,7 +433,7 @@ def main_worker(gpu, ngpus_per_node, opt, tb_writer=None):
 
     # ===================dataloader=====================
     if opt.dataset == 'cifar100':
-        if opt.distill in ['crd']:
+        if opt.distill in ['crd','hkd']:
             train_loader, val_loader, n_data = get_cifar100_dataloaders_sample(batch_size=opt.batch_size,
                                                                                num_workers=opt.num_workers,
                                                                                k=opt.nce_k,
@@ -441,7 +460,7 @@ def main_worker(gpu, ngpus_per_node, opt, tb_writer=None):
             pass
     elif opt.dataset == 'tinyimagenet':
         if opt.dali is None:
-            if opt.distill in ['crd']:
+            if opt.distill in ['crd','hkd']:
                 pass
                 # train_loader, val_loader, n_data = get_tinyimagenet_dataloaders_sample(batch_size=opt.batch_size,
                 #                                                                        num_workers=opt.num_workers,
@@ -476,6 +495,7 @@ def main_worker(gpu, ngpus_per_node, opt, tb_writer=None):
 
     # ===================routine=====================
     for epoch in range(1, opt.epochs + 1):
+        #每个epoch干啥 1 调学习率 2训练(前向传播,反向传播) 3测试 4保存最优结果
         torch.cuda.empty_cache()
         if opt.multiprocessing_distributed:
             if opt.dali is None:
@@ -519,16 +539,16 @@ def main_worker(gpu, ngpus_per_node, opt, tb_writer=None):
         save_file = os.path.join(opt.tb_path, opt.model_name, 'log{trial}.csv'.format(trial=opt.trial))
         with open(save_file, 'a+', newline='') as f:
             writer = csv.writer(f)
-            if opt.distill=='GCKD':
+            if opt.distill == 'gckd':
                 writer.writerow(
                     [epoch, round(train_acc, 5), round(train_loss, 5),
                      round(test_acc, 5), round(test_acc_top5, 5), round(test_loss, 5),
                      round(loss_dict['losses_cls'], 5),
                      round(loss_dict['losses_div'], 5),
                      round(loss_dict['losses_mse'], 5),
-                     round(loss_dict['losses_gtt'], 5),#
-                     round(loss_dict['losses_its'], 5),#
-                     round(loss_dict['losses_gts'], 5),#
+                     round(loss_dict['losses_gtt'], 5),  #
+                     round(loss_dict['losses_its'], 5),  #
+                     round(loss_dict['losses_gts'], 5),  #
                      ])
             else:
                 writer.writerow(

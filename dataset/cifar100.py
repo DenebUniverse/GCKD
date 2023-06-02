@@ -69,9 +69,10 @@ class CIFAR100Instance(CIFAR100BackCompat):
         return img, target, index
 
 
-def get_cifar100_dataloaders(batch_size=128, num_workers=8, is_instance=False):
+def get_cifar100_dataloaders(batch_size=128, num_workers=8, is_instance=False):#1数据增强transform2定义返回数据形式dataset3打包成batch dataloader
     """
     cifar 100
+
     """
     data_folder = get_data_folder()
 
