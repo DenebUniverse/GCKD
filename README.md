@@ -10,7 +10,7 @@ This repo contains the Pytorch implementation of Graph Contrastive Knowledge Dis
 
 ### Experiments on Cifia-100
 
-![result](./img/Experiment.PNG)
+![result](./img/Experiment.png)
 
 The implementation of compared methods are based on the author-provided code and a open-source benchmark https://github.com/HobbitLong/RepDistiller.
 
