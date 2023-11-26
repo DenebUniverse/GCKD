@@ -6,7 +6,7 @@ This repo contains the Pytorch implementation of Graph Contrastive Knowledge Dis
 
 ### An overview of GCKD
 
-![model](./img/model.jpg)
+![model](./img/model.png)
 
 ### Experiments on Cifia-100
 
