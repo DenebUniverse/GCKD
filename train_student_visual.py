@@ -19,13 +19,12 @@ import torch.nn as nn
 import torch.backends.cudnn as cudnn
 # import tensorboard_logger as tb_logger
 from torch.utils.tensorboard import SummaryWriter
-
-from dataset.tinyimagenet import get_tinyimagenet_dataloader
 from dataset.imagenet_dali import get_dali_data_loader
-from dataset.tinyimagenet_dali import get_tiny_dali_data_loader
-from distiller_zoo.GLKD import GL_MoCo, GCKD
-from models import model_dict
+from distiller_zoo.GCKD import GCKD
+from distiller_zoo.GNN import GNNLoss
+from distiller_zoo import DistillKL, HintLoss, Attention, Similarity, VIDLoss, SemCKDLoss
 from distiller_zoo.SimKD import ConvReg, SelfA, SRRL, SimKD
+from crd.criterion import CRDLoss
 
 from dataset.cifar100 import get_cifar100_dataloaders, get_cifar100_dataloaders_sample
 from dataset.imagenet import get_imagenet_dataloader, get_dataloader_sample
@@ -33,8 +32,7 @@ from dataset.imagenet import get_imagenet_dataloader, get_dataloader_sample
 from helper.loops import train_distill as train, validate_vanilla, validate_distill
 from helper.util import save_dict_to_json, reduce_tensor, adjust_learning_rate
 
-from crd.criterion import CRDLoss
-from distiller_zoo import DistillKL, HintLoss, Attention, Similarity, VIDLoss, SemCKDLoss
+from models import model_dict
 
 split_symbol = '_'
 
@@ -58,7 +56,7 @@ def parse_option():
     parser.add_argument('--cos', action='store_true', default=None, help='use cosine lr schedule')
 
     # dataset and model
-    parser.add_argument('--dataset', type=str, default='cifar100', choices=['cifar100', 'imagenet', 'tinyimagenet'],
+    parser.add_argument('--dataset', type=str, default='cifar100', choices=['cifar100', 'imagenet'],
                         help='dataset')
     parser.add_argument('--model_s', type=str, default='resnet8x4')
     parser.add_argument('--path_t', type=str, default=None, help='teacher model snapshot')
@@ -68,8 +66,8 @@ def parse_option():
     parser.add_argument('--kd_T', type=float, default=4, help='temperature for KD distillation')
     parser.add_argument('--cl_T', type=float, default=0.07, help='temperature for CL distillation')
     parser.add_argument('--distill', type=str, default='kd', choices=['kd', 'hint', 'attention', 'similarity', 'vid',
-                                                                      'crd', 'semckd', 'srrl', 'simkd',
-                                                                      'gld', 'gckd'])
+                                                                      'crd','hkd', 'semckd', 'srrl', 'simkd',
+                                                                      'gckd'])
     parser.add_argument('-c', '--cls', type=float, default=1.0, help='weight for classification')
     parser.add_argument('-d', '--div', type=float, default=1.0, help='weight balance for KD')
     parser.add_argument('-m', '--mu', type=float, default=None, help='weight balance for feature l2 loss')
@@ -207,7 +205,7 @@ def main():
 
     # tensorboard logger
     print("tensorboard --logdir " + opt.tb_folder + "/tb_logs")
-    tb_writer = SummaryWriter(log_dir=opt.tb_folder + '/tb_logs', comment='GLD')
+    tb_writer = SummaryWriter(log_dir=opt.tb_folder + '/tb_logs', comment='gckd')
     with open(os.path.join(opt.tb_path, 'tensorbroad.txt'), 'a+') as f:
         f.write("tensorboard --logdir " + opt.tb_folder + "/tb_logs \n")
     save_file = os.path.join(opt.tb_path, opt.model_name, 'log{trial}.csv'.format(trial=opt.trial))
@@ -258,7 +256,6 @@ def main_worker(gpu, ngpus_per_node, opt, tb_writer=None):
     n_cls = {
         'cifar100': 100,
         'imagenet': 1000,
-        'tinyimagenet': 200,
     }.get(opt.dataset, None)
 
     model_t = load_teacher(opt.path_t, n_cls, opt.gpu, opt)
@@ -271,8 +268,6 @@ def main_worker(gpu, ngpus_per_node, opt, tb_writer=None):
         data = torch.randn(2, 3, 32, 32)
     elif opt.dataset == 'imagenet':
         data = torch.randn(2, 3, 224, 224)
-    elif opt.dataset == 'tinyimagenet':
-        data = torch.randn(2, 3, 32, 32)
 
     model_t.eval()
     model_s.eval()
@@ -319,6 +314,22 @@ def main_worker(gpu, ngpus_per_node, opt, tb_writer=None):
         module_list.append(criterion_kd.embed_t)
         trainable_list.append(criterion_kd.embed_s)
         trainable_list.append(criterion_kd.embed_t)
+    elif opt.distill == 'hkd':
+        opt.s_dim = feat_s[-1].shape[1]
+        opt.t_dim = feat_t[-1].shape[1]
+        if opt.dataset == 'cifar100':
+            opt.n_data = 50000
+        else:
+            opt.n_data = 1281167
+        criterion_kd = GNNLoss(opt)
+        module_list.append(criterion_kd.embed_s)
+        module_list.append(criterion_kd.embed_t)
+        module_list.append(criterion_kd.gnn_s)
+        module_list.append(criterion_kd.gnn_t)
+        trainable_list.append(criterion_kd.embed_s)
+        trainable_list.append(criterion_kd.embed_t)
+        trainable_list.append(criterion_kd.gnn_s)
+        trainable_list.append(criterion_kd.gnn_t)
     elif opt.distill == 'semckd':
         s_n = [f.shape[1] for f in feat_s[1:-1]]
         t_n = [f.shape[1] for f in feat_t[1:-1]]
@@ -340,18 +351,6 @@ def main_worker(gpu, ngpus_per_node, opt, tb_writer=None):
         criterion_kd = nn.MSELoss(opt)
         module_list.append(model_simkd)
         trainable_list.append(model_simkd)
-    elif opt.distill == 'gld':
-        s_n = feat_s[-1].shape[1]
-        t_n = feat_t[-1].shape[1]
-        # print("s_dim",s_n)
-        # print("t_dim",t_n)
-        momentum_rate = {'one': 0, 'two': 1, 'momentum': 0.99}
-        criterion_kd = GL_MoCo(s_dim=s_n, t_dim=t_n, m=momentum_rate[opt.gnnencoder],
-                               opt=opt)  # m momentum rate one:0 two:1 momentum 0.99
-        module_list.append(criterion_kd.transfer)
-        trainable_list.append(criterion_kd.transfer)
-        # trainable_list.append(criterion_kd.gnn_q)
-        # trainable_list.append(criterion_kd.gnn_k)
     elif opt.distill == 'gckd':
         s_n = feat_s[-1].shape[1] if opt.last_feature == 1 else feat_s[-2].shape[1]
         t_n = feat_t[-1].shape[1] if opt.last_feature == 1 else feat_t[-2].shape[1]
@@ -377,7 +376,7 @@ def main_worker(gpu, ngpus_per_node, opt, tb_writer=None):
                           momentum=opt.momentum,
                           weight_decay=opt.weight_decay)
     optimizer_list = [optimizer]
-    if opt.distill in ['gld', 'gckd']:
+    if opt.distill in ['gckd']:
         GNN_optimizer = optim.SGD(nn.ModuleList([criterion_kd.gnn_q, criterion_kd.gnn_k]).parameters(),
                                   lr=opt.learning_rate,
                                   momentum=opt.momentum,
@@ -414,7 +413,7 @@ def main_worker(gpu, ngpus_per_node, opt, tb_writer=None):
 
     # ===================dataloader=====================
     if opt.dataset == 'cifar100':
-        if opt.distill in ['crd']:
+        if opt.distill in ['crd','hkd']:
             train_loader, val_loader, n_data = get_cifar100_dataloaders_sample(batch_size=opt.batch_size,
                                                                                num_workers=opt.num_workers,
                                                                                k=opt.nce_k,
@@ -424,7 +423,7 @@ def main_worker(gpu, ngpus_per_node, opt, tb_writer=None):
                                                                 num_workers=opt.num_workers)
     elif opt.dataset == 'imagenet':
         if opt.dali is None:
-            if opt.distill in ['crd']:
+            if opt.distill in ['crd','hkd']:
                 train_loader, val_loader, n_data, _, train_sampler = get_dataloader_sample(dataset=opt.dataset,
                                                                                            batch_size=opt.batch_size,
                                                                                            num_workers=opt.num_workers,
@@ -438,22 +437,6 @@ def main_worker(gpu, ngpus_per_node, opt, tb_writer=None):
                                                                                   multiprocessing_distributed=opt.multiprocessing_distributed)
         else:
             train_loader, val_loader = get_dali_data_loader(opt)
-            pass
-    elif opt.dataset == 'tinyimagenet':
-        if opt.dali is None:
-            if opt.distill in ['crd']:
-                pass
-                # train_loader, val_loader, n_data = get_tinyimagenet_dataloaders_sample(batch_size=opt.batch_size,
-                #                                                                        num_workers=opt.num_workers,
-                #                                                                        k=opt.nce_k,
-                #                                                                        mode=opt.mode)
-            else:
-                train_loader, val_loader, train_sampler = get_tinyimagenet_dataloader(dataset=opt.dataset,
-                                                                                      batch_size=opt.batch_size,
-                                                                                      num_workers=opt.num_workers,
-                                                                                      multiprocessing_distributed=opt.multiprocessing_distributed)
-        else:
-            train_loader, val_loader = get_tiny_dali_data_loader(opt)
             pass
     else:
         raise NotImplementedError(opt.dataset)
@@ -537,9 +520,6 @@ def main_worker(gpu, ngpus_per_node, opt, tb_writer=None):
                      round(loss_dict['losses_cls'], 5),
                      round(loss_dict['losses_div'], 5),
                      round(loss_dict['losses_mse'], 5),
-                     # round(loss_dict['losses_gtt'], 5),#
-                     # round(loss_dict['losses_its'], 5),#
-                     # round(loss_dict['losses_gts'], 5),#
                      ])
 
         if opt.dali is not None:

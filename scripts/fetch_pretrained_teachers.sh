@@ -1,8 +1,8 @@
 # fetch pre-trained teacher models
 
-mkdir -p save/models/
+mkdir -p save/teachers/models/
 
-cd save/models
+cd save/teachers/models
 
 mkdir -p wrn_40_2_vanilla
 wget http://shape2prog.csail.mit.edu/repo/wrn_40_2_vanilla/ckpt_epoch_240.pth

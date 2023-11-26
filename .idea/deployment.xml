@@ -33,7 +33,7 @@
       <paths name="tongqiang@202.204.161.66:22 password">
         <serverdata>
           <mappings>
-            <mapping deploy="/GCKD" local="$PROJECT_DIR$" web="/" />
+            <mapping deploy="/GCKD_main" local="$PROJECT_DIR$" web="/" />
           </mappings>
         </serverdata>
       </paths>

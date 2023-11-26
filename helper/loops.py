@@ -72,7 +72,7 @@ def train_distill(epoch, train_loader, module_list, criterion_list, optimizer_li
 
     # ===================optimizer=====================
     optimizer = optimizer_list[0]
-    if opt.distill in ['gld', 'gckd']:
+    if opt.distill in ['gckd']:
         GNN_optimizer = optimizer_list[1]
         if opt.gadv == 'adgcl':
             adversarial_optimizer = optimizer_list[2]
@@ -93,9 +93,9 @@ def train_distill(epoch, train_loader, module_list, criterion_list, optimizer_li
     losses_cls = AverageMeter()
     losses_div = AverageMeter()
     losses_kd = AverageMeter()
-    if opt.distill in ['crd','srrl', 'simkd', 'gld', 'gckd']:
+    if opt.distill in ['kd', 'crd', 'hkd', 'srrl', 'simkd', 'gckd']:
         losses_mse = AverageMeter()
-        if opt.distill in ['gld', 'gckd']:
+        if opt.distill in ['gckd']:
             losses_its = AverageMeter()
             losses_gts = AverageMeter()
             losses_gtt = AverageMeter()
@@ -104,23 +104,24 @@ def train_distill(epoch, train_loader, module_list, criterion_list, optimizer_li
     n_batch = len(train_loader) if opt.dali is None else (train_loader._size + opt.batch_size - 1) // opt.batch_size
 
     end = time.time()
+
     for idx, data in enumerate(train_loader):
         if opt.dali is None:
-            if opt.distill in ['crd']:
+            if opt.distill in ['crd', 'hkd']:
                 images, labels, index, contrast_idx = data
             else:
                 images, labels = data
         else:
             images, labels = data[0]['data'], data[0]['label'].squeeze().long()
 
-        if opt.distill in ['semckd', 'gld', 'gckd'] and images.shape[0] < opt.batch_size:
+        if opt.distill in ['semckd', 'gckd'] and images.shape[0] < opt.batch_size:
             continue
 
         if opt.gpu is not None:
             images = images.cuda(opt.gpu if opt.multiprocessing_distributed else 0, non_blocking=True)
         if torch.cuda.is_available():
             labels = labels.cuda(opt.gpu if opt.multiprocessing_distributed else 0, non_blocking=True)
-            if opt.distill in ['crd']:
+            if opt.distill in ['crd', 'hkd']:
                 index = index.cuda()
                 contrast_idx = contrast_idx.cuda()
 
@@ -138,7 +139,8 @@ def train_distill(epoch, train_loader, module_list, criterion_list, optimizer_li
 
         # other kd loss
         if opt.distill == 'kd':
-            loss_kd = 0
+            loss_kd = torch.zeros([1]).cuda()
+            loss_mse = torch.zeros([1]).cuda()
         elif opt.distill == 'hint':
             f_s, f_t = module_list[1](feat_s[opt.hint_layer], feat_t[opt.hint_layer])
             loss_kd = criterion_kd(f_s, f_t)
@@ -161,8 +163,18 @@ def train_distill(epoch, train_loader, module_list, criterion_list, optimizer_li
         elif opt.distill == 'crd':
             f_s = feat_s[-1]
             f_t = feat_t[-1]
-            loss_mse=criterion_mse(f_s, f_t)
+            loss_mse = criterion_mse(f_s, f_t)
             loss_kd = criterion_kd(f_s, f_t, index, contrast_idx)
+        elif opt.distill == 'hkd':
+            """
+            index:batch_size
+            contrast_idx:batch_size*nce_k
+            """
+            f_s = feat_s[-1]
+            f_t = feat_t[-1]
+            loss_mse = criterion_mse(f_s, f_t)
+            loss_kd, loss_contrast_its, loss_contrast_gts = criterion_kd(epoch, f_s, logit_s, f_t, logit_t, index,
+                                                                         contrast_idx)
         elif opt.distill == 'semckd':
             s_value, f_target, weight = module_list[1](feat_s[1:-1], feat_t[1:-1])
             loss_kd = criterion_kd(s_value, f_target, weight)
@@ -175,13 +187,6 @@ def train_distill(epoch, train_loader, module_list, criterion_list, optimizer_li
             logit_s = pred_feat_s
             loss_kd = criterion_kd(trans_feat_s, trans_feat_t)
             loss_mse = criterion_mse(trans_feat_s, trans_feat_t)
-        elif opt.distill == 'gld':
-            trans_feat_s, pred_feat_s = module_list[1](feat_s[-1], cls_t)
-            loss_mse = criterion_mse(trans_feat_s, feat_t[-1])
-            # loss_kd = criterion_kd(trans_feat_s, feat_t[-1]) + criterion_kd(pred_feat_s, logit_t)
-            criterion_kd.use_forward_tt = False
-            loss_kd, loss_its, loss_gts = criterion_kd(trans_feat_s, feat_t[-1])
-            # loss_gtt= criterion_kd(trans_feat_s, feat_t[-1])
         elif opt.distill == 'gckd':
             if opt.last_feature == 1:
                 trans_feat_s, pred_feat_s = module_list[1](feat_s[-1], cls_t)
@@ -203,9 +208,9 @@ def train_distill(epoch, train_loader, module_list, criterion_list, optimizer_li
         losses_cls.update(loss_cls.item(), images.size(0))
         losses_div.update(loss_div.item(), images.size(0))
         losses_kd.update(loss_kd.item(), images.size(0))
-        if opt.distill in ['crd','srrl', 'simkd', 'gld', 'gckd']:
+        if opt.distill in ['kd', 'crd','hkd', 'srrl', 'simkd', 'gckd']:
             losses_mse.update(loss_mse.item(), images.size(0))
-            if opt.distill in ['gld', 'gckd']:
+            if opt.distill in ['gckd']:
                 losses_its.update(loss_its.item(), images.size(0))
                 losses_gts.update(loss_gts.item(), images.size(0))
                 # losses_gtt.update(loss_gtt.item(), images.size(0))
@@ -221,13 +226,12 @@ def train_distill(epoch, train_loader, module_list, criterion_list, optimizer_li
         # GNN_optimizer.zero_grad()
         optimizer.step()
 
-        if opt.distill in ['gld', 'gckd']:
+        if opt.distill in ['gckd']:
             # train GNN to minimize contrastive loss
             ## forward
             # if len(index)>=opt.knn:
             # freeze epoch
             if epoch == opt.lr_decay_epochs[0]:
-                # 将模型参数设置为不需要梯度计算
                 with torch.no_grad():
                     for param in criterion_kd.gnn_q.parameters():
                         param.requires_grad = False
@@ -299,11 +303,12 @@ def train_distill(epoch, train_loader, module_list, criterion_list, optimizer_li
                     # losses_gtt=losses_gtt,
                     top1=top1, top5=top5))
                 sys.stdout.flush()
+
     train_loss_dict = {"train_loss": losses.avg, "losses_cls": losses_cls.avg, "losses_div": losses_div.avg,
                        "losses_mse": losses_mse.avg, "losses_kd": losses_kd.avg,
                        # "losses_its": losses_its.avg, "losses_gts": losses_gts.avg,
                        }
-    if opt.distill in ['gld', 'gckd']:
+    if opt.distill in ['gckd']:
         train_loss_dict['losses_its'] = losses_its.avg
         train_loss_dict['losses_gts'] = losses_gts.avg
         train_loss_dict['losses_gtt'] = losses_gtt.avg
@@ -372,7 +377,7 @@ def validate_vanilla(val_loader, model, criterion, opt):
     return top1.avg, top5.avg, losses.avg
 
 
-def validate_distill(val_loader, module_list, criterion, opt):
+def validate_distill(epoch,val_loader, module_list, criterion, opt):
     """validation"""
 
     batch_time = AverageMeter()
