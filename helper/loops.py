@@ -4,7 +4,7 @@ from cProfile import label
 import sys
 import time
 import torch
-from .util import AverageMeter, accuracy, reduce_tensor
+from .util import AverageMeter, accuracy, reduce_tensor,save_embedding
 
 
 def train_vanilla(epoch, train_loader, model, criterion, optimizer, opt):
@@ -63,7 +63,6 @@ def train_vanilla(epoch, train_loader, model, criterion, optimizer, opt):
 
 
 def train_distill(epoch, train_loader, module_list, criterion_list, optimizer_list, opt):
-    # 加载前面定义的所有东西 2 dataloader取数据
     """one epoch distillation"""
     # set modules as train()
     for module in module_list:
@@ -193,12 +192,14 @@ def train_distill(epoch, train_loader, module_list, criterion_list, optimizer_li
                 trans_feat_s, pred_feat_s = module_list[1](feat_s[-1], cls_t)
                 loss_mse = criterion_mse(trans_feat_s, feat_t[-1])
                 criterion_kd.use_forward_tt = False
-                loss_kd, loss_its, loss_gts = criterion_kd(trans_feat_s, feat_t[-1])
+                loss_kd, loss_its, loss_gts, q, k, q_g, k_g = criterion_kd(trans_feat_s, feat_t[-1])
             else:
                 trans_feat_s, trans_feat_t, pred_feat_s = module_list[1](feat_s[-2], feat_t[-2], cls_t)
                 loss_mse = criterion_mse(trans_feat_s, trans_feat_t)
                 criterion_kd.use_forward_tt = False
-                loss_kd, loss_its, loss_gts = criterion_kd(trans_feat_s, trans_feat_t)
+                loss_kd, loss_its, loss_gts, q, k, q_g, k_g = criterion_kd(trans_feat_s, trans_feat_t)
+            emebddings={'emb_s_i':q, 'emb_t_i':k,'emb_s_g': q_g,'emb_t_g':k_g}
+            save_embedding(path=opt.embedding_path,mode='train',epoch=epoch,batch_idx=idx,embeddings_dict=emebddings)
         else:
             raise NotImplementedError(opt.distill)
 
@@ -377,7 +378,7 @@ def validate_vanilla(val_loader, model, criterion, opt):
     return top1.avg, top5.avg, losses.avg
 
 
-def validate_distill(val_loader, module_list, criterion, opt):
+def validate_distill(epoch,val_loader, module_list, criterion, opt):
     """validation"""
 
     batch_time = AverageMeter()
@@ -417,6 +418,11 @@ def validate_distill(val_loader, module_list, criterion, opt):
                 _, _, output = module_list[1](feat_s[-2], feat_t[-2], cls_t)
             else:
                 output = model_s(images)
+
+                emebddings = {'emb_s_i': output}
+                save_embedding(path=opt.embedding_path, mode='test', epoch=epoch, batch_idx=idx,
+                               embeddings_dict=emebddings)
+
             loss = criterion(output, labels)
             losses.update(loss.item(), images.size(0))
 

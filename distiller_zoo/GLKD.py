@@ -1,17 +1,16 @@
 from __future__ import print_function
-
+# import scipy
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from dgl.nn.pytorch import TAGConv, GINConv, GraphConv
 from dgl import DGLGraph
+from dgl.nn.pytorch import TAGConv, GINConv, GraphConv
 from scipy import sparse
 # from dgl.nn.pytorch.factory import KNNGraph
-import torch.nn.functional as F
 import dgl.backend as B
 # import dgl.function as fn
 # import dgl
-# import numpy as np
+import numpy as np
 from torch.nn import Sequential, Linear, ReLU
 
 eps = 1e-7
@@ -41,8 +40,12 @@ def cos_distance_softmax(x):
     w = soft.norm(p=2, dim=2, keepdim=True)
     return 1 - soft @ B.swapaxes(soft, -1, -2) / (w @ B.swapaxes(w, -1, -2)).clamp(min=eps)
 
+def cos_distance(x):
+    x = x.squeeze()
+    x = x / torch.norm(x, dim=-1, keepdim=True)  # 方差归一化，即除以各自的模
+    return torch.mm(x, x.T)
 
-def knn_graph(x, k):
+def knn_graph(x, k,adj_only=False):
     """
     logit构建图
     x=logit:batch_size*100
@@ -70,10 +73,29 @@ def knn_graph(x, k):
     dst = B.reshape(dst, (-1,))
     src = B.reshape(src, (-1,))
     adj = sparse.csr_matrix((B.asnumpy(B.zeros_like(dst) + 1), (B.asnumpy(dst), B.asnumpy(src))))
-
+    if adj_only:
+        return adj
     g = DGLGraph(adj, readonly=True)
     # g = dgl.graph(adj)
     return g, {"adj": adj, "src": src, "dst": dst}
+
+
+def threshold_graph(x, threshold=0.5,adj_only=False):
+    """
+    logit构建图
+    x=logit:batch_size*100
+    dist:1*batch_size*batch_size(对角线-1，其他值0-1)
+    dst:1*batch_size*top_k(目标节点)
+    """
+    if B.ndim(x) == 2:
+        x = B.unsqueeze(x, 0)
+    dist = cos_distance(x)
+    adj = (dist >= threshold).int()
+    adj = adj.cpu().numpy()
+    if adj_only:
+        return adj
+    g = DGLGraph(sparse.csr_matrix(adj), readonly=True)
+    return g, {"adj": adj, "src": None, "dst": None}
 
 
 class Encoder(nn.Module):
@@ -93,6 +115,7 @@ class Encoder(nn.Module):
         return h
 
 
+# GNN实现
 class GNN(nn.Module):
     def __init__(self, in_dim, hidden_dim, gnnlayer, num_layers):
         super(GNN, self).__init__()
@@ -125,6 +148,7 @@ class GNN(nn.Module):
             h = layer(g, h, edge_weight=g.edata['w']) if eWeight else layer(g, h)
         h = self.l2norm(h)
         return h
+
 
 # transfer
 class SRRL(nn.Module):
@@ -205,13 +229,14 @@ class SimKD(nn.Module):
 
         return self.avg_pool(trans_feat_s).squeeze(), self.avg_pool(trans_feat_t).squeeze(), pred_feat_s
 
+
 # model
 
 class GL_MoCo(nn.Module):
     def __init__(self, s_dim, t_dim=128, K=4096, m=0.99, T=0.1, bn_splits=8, symmetric=False, opt=None):
         super(GL_MoCo, self).__init__()
 
-        self.gama=opt.gama
+        self.gama = opt.gama
         self.K = K
         self.m = m
         self.T = T
@@ -473,7 +498,7 @@ class GCKD(nn.Module):
     def __init__(self, s_dim, t_dim=128, K=4096, m=0.99, T=0.1, bn_splits=8, symmetric=False, opt=None):
         super(GCKD, self).__init__()
 
-        self.gama=opt.gama
+        self.gama = opt.gama
         self.K = K
         self.m = m
         self.T = T
@@ -497,6 +522,7 @@ class GCKD(nn.Module):
 
         self.use_forward_tt = False
         self.adj_k = opt.adj_k
+        self.adj_threshold = opt.adj_threshold
         self.graphadv = {'NPerturb': opt.NPerturb, "EPerturb": opt.EPerturb, "adv": opt.gadv}
 
         # create the queue
@@ -549,10 +575,15 @@ class GCKD(nn.Module):
         """
         return x[idx_unshuffle]
 
-    def emb2graph(self, q, queue, adj_k=20, adj=None):  # adj share A
+    def emb2graph(self, q, queue, adj_k=20, adj_threshold=-1, adj=None):  # adj share A
         X = torch.cat([q, queue.permute(1, 0)], dim=0)
         if adj == None:
-            G, adj = knn_graph(X, k=adj_k)
+            if adj_k > 0:
+                G, adj = knn_graph(X, k=adj_k)
+            elif adj_threshold > -1:
+                G, adj = threshold_graph(X, threshold=adj_threshold)
+            else:
+                print('')
         else:
             G = DGLGraph(adj, readonly=True)
         G = G.to(device)
@@ -586,7 +617,7 @@ class GCKD(nn.Module):
         l_pos = torch.einsum('nc,nc->n', [q, k]).unsqueeze(-1)
         # negative logits: NxK
         l_neg = torch.einsum('nc,ck->nk', [q, self.queue.clone().detach()])
-
+        # s_neg==t_neg
         # logits: Nx(1+K)
         logits = torch.cat([l_pos, l_neg], dim=1)
 
@@ -599,8 +630,8 @@ class GCKD(nn.Module):
         loss_its = nn.CrossEntropyLoss().cuda()(logits, labels)
 
         ## 构造图
-        Graph_q, _ = self.emb2graph(q, self.queue.clone().detach(), adj_k=self.adj_k)
-        Graph_k, _ = self.emb2graph(k, self.queue.clone().detach(), adj_k=self.adj_k)
+        Graph_q, _ = self.emb2graph(q, self.queue.clone().detach(), adj_k=self.adj_k, adj_threshold=self.adj_threshold)
+        Graph_k, _ = self.emb2graph(k, self.queue.clone().detach(), adj_k=self.adj_k, adj_threshold=self.adj_threshold)
 
         ## graph contrastive loss
         # compute query features
@@ -608,9 +639,9 @@ class GCKD(nn.Module):
         q_g = nn.functional.normalize(q_g, dim=1)  # already normalized
 
         # k_g = self.gnn_k(Graph_k)[:batch_size]  # queries: NxC
-        embedding_g=self.gnn_k(Graph_k)  # queries: NxC
-        k_g =embedding_g[:batch_size]
-        queue_g=embedding_g[batch_size:]#
+        embedding_g = self.gnn_k(Graph_k)  # queries: NxC
+        k_g = embedding_g[:batch_size]
+        queue_g = embedding_g[batch_size:]  #
         # # compute key features
         # with torch.no_grad():  # no gradient to keys
         #     # shuffle for making use of BN
@@ -643,8 +674,8 @@ class GCKD(nn.Module):
         loss_gts = nn.CrossEntropyLoss().cuda()(logits, labels)
 
         # total loss
-        loss = loss_its + loss_gts*self.gama
-        return loss, q, k, loss_its, loss_gts
+        loss = loss_its + loss_gts * self.gama
+        return loss, q, k, loss_its, loss_gts, q_g, k_g
 
     def contrastive_adv(self, im_q):
         batch_size = im_q.shape[0]
@@ -656,8 +687,9 @@ class GCKD(nn.Module):
         k = q
 
         ## 构造图
-        Graph_q, _ = self.emb2graph(q, self.queue.clone().detach(), adj_k=self.adj_k)
-        Graph_k, adj = self.emb2graph(k, self.queue.clone().detach(), adj_k=self.adj_k)
+        Graph_q, _ = self.emb2graph(q, self.queue.clone().detach(), adj_k=self.adj_k, adj_threshold=self.adj_threshold)
+        Graph_k, adj = self.emb2graph(k, self.queue.clone().detach(), adj_k=self.adj_k,
+                                      adj_threshold=self.adj_threshold)
 
         ## 图增强
         if self.graphadv['NPerturb'] > 0:
@@ -684,9 +716,9 @@ class GCKD(nn.Module):
         q_g = self.gnn_q(Graph_q)[:batch_size]  # queries: NxC
         q_g = nn.functional.normalize(q_g, dim=1)  # already normalized
 
-        embedding_g=self.gnn_k(Graph_k)  # queries: NxC
-        k_g =embedding_g[:batch_size]
-        queue_g=embedding_g[batch_size:]#
+        embedding_g = self.gnn_k(Graph_k)  # queries: NxC
+        k_g = embedding_g[:batch_size]
+        queue_g = embedding_g[batch_size:]  #
         k_g = nn.functional.normalize(k_g, dim=1)
 
         # compute logits
@@ -708,7 +740,7 @@ class GCKD(nn.Module):
 
         loss_gtt = nn.CrossEntropyLoss().cuda()(logits, labels)
 
-        return loss_gtt*self.gama
+        return loss_gtt * self.gama
 
     def forward_st(self, ims, imt):
         """
@@ -724,18 +756,21 @@ class GCKD(nn.Module):
 
         # compute loss
         if self.symmetric:  # asymmetric loss
-            loss_12, q1, k2, loss_its12, loss_gts12 = self.contrastive_loss(ims, imt)
-            loss_21, q2, k1, loss_its21, loss_gts21 = self.contrastive_loss(ims, imt)
+            loss_12, q1, k2, loss_its12, loss_gts12, q_g1, k_g2 = self.contrastive_loss(ims, imt)
+            loss_21, q2, k1, loss_its21, loss_gts21, q_g2, k_g1 = self.contrastive_loss(ims, imt)
             loss = loss_12 + loss_21
             loss_its = loss_its12 + loss_its21
             loss_gts = loss_gts12 + loss_gts21
             k = torch.cat([k1, k2], dim=0)
+            q = torch.cat([q1, q2], dim=0)
+            k_g = torch.cat([k_g1, k_g2], dim=0)
+            q_g = torch.cat([q_g1, q_g2], dim=0)
         else:  # asymmetric loss
-            loss, q, k, loss_its, loss_gts = self.contrastive_loss(ims, imt)
-
+            loss, q, k, loss_its, loss_gts, q_g, k_g = self.contrastive_loss(ims, imt)
+        #
         self._dequeue_and_enqueue(k)
 
-        return loss, loss_its, loss_gts
+        return loss, loss_its, loss_gts, q, k, q_g, k_g
 
     def forward(self, ims, imt):
         return self.contrastive_adv(imt) if self.use_forward_tt else self.forward_st(ims, imt)

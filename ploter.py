@@ -288,7 +288,7 @@ def plot_corr():
             out_path = './save/plot2/heatmap_' + distillation + '-' + method + '-'
             print(diff_corr_matrix.shape)
             # corr diff
-            sns.heatmap(diff_corr_matrix.cpu().numpy(), center=0, cmap='PuOr',vmin=-0.4,vmax=0.4)
+            sns.heatmap(diff_corr_matrix.cpu().numpy(), center=0, cmap='PuOr', vmin=-0.4, vmax=0.4)
             plt.savefig(out_path + 'T_{}-S_{}.png'
                         .format(get_model_name(teacher_path), get_model_name(student_path)))
             plt.cla()
@@ -320,87 +320,205 @@ def plot_corr():
 
 def line_ploter():
     import seaborn as sns
-    sns.set_theme(style="darkgrid")
-    # d = {'log2 k': [3, 4,5,6,7,3, 4,5,6,7],
+    # sns.set_theme(style="darkgrid")
+    sns.set(style="whitegrid", font_scale=2.4)
+
+    # d = {'log2 k': [3,4,5,6,7,3, 4,5,6,7],
     #      'acc': [75.87, 75.84,75.99,76.44,62.82,
     #              76.65,76.4,75.93,76.15,62],
     #      'type':['share','share','share','share','share','momentum','momentum','momentum','momentum','momentum']}
     # df = pd.DataFrame(data=d)
-    #
     # # Plot the responses for different events and regions
-    # sns.lineplot(x="log_2^k", y="acc",
+    # plt.figure(dpi=300, figsize=(10, 8))
+    # sns.lineplot(x="log2 k", y="acc",
     #              hue="type", style="type",
-    #              markers=True,
-    #              data=df)
+    #              data=df,
+    #              linewidth=10,
+    #              marker="s", markersize=20,
+    #              # color='orange'
+    #              )
     # plt.xticks([3, 4,5,6,7])
 
+    # plt.figure(dpi=300, figsize=(10, 8))
     # d = {'node pert. rate': [0.0001,0.001,0.005,0.01, 0.1, 1, 10],
     #      'Test accuracy': [76.01,76.65,76.4,76.39, 76.31, 76.16, 76.2],
     #      }
     # df = pd.DataFrame(data=d)
-    #
-    # g=sns.lineplot(data=df, x='node pert. rate', y='Test accuracy', linestyle='dashed')
+    # g=sns.lineplot(data=df, x='node pert. rate', y='Test accuracy', linestyle='dashed',
+    #                  linewidth=10,
+    #                  marker="s", markersize=20, color='orange')
     # g.set(xlabel=None)
     # plt.xscale('log')
-    # plt.ylim(76.1, 76.7)
+    # plt.ylim(76.0, 76.7)
     # plt.show()
 
+    # plt.figure(dpi=300, figsize=(10, 8))
     # d = {'k of Adjacency Matrix': [4, 6, 8, 10, 12, 14, 16],
     #      'Test accuracy': [76.28, 76.18, 76.31, 76.12, 76.13, 76.14, 76.16],
     #      }
     # df = pd.DataFrame(data=d)
-    #
-    # g=sns.lineplot(data=df, x='k of Adjacency Matrix', y='Test accuracy', linestyle='dashed')
+    # g = sns.lineplot(data=df, x='k of Adjacency Matrix', y='Test accuracy', linestyle='dashed',
+    #                  linewidth=10,
+    #                  marker="s", markersize=20, color='orange')
     # g.set(xlabel=None)
+    # plt.xticks([4, 6, 8, 10,12,14,16])
     # plt.ylim(76.05, 76.35)
+    # plt.tight_layout()
     # plt.show()
 
+    # plt.figure(dpi=300, figsize=(10, 8))
     # d = {'depth of GNN': [1, 2, 3, 4,1, 2, 3, 4],
-    #      'Test accuracy': [76.435, 76.115, 76.38, 76.26,76.58,76.45,76.19,75.89],
-    #      'type':['momentum','momentum','momentum','momentum','share','share','share','share']
+    #      'Test accuracy': [76.435, 76.23, 76.38, 76.26,76.58,76.45,76.19,75.89],
+    #      'Params update type':['momentum','momentum','momentum','momentum','share','share','share','share']
     #      }
     # df = pd.DataFrame(data=d)
-    #
-    # g=sns.lineplot(data=df, x='depth of GNN', y='Test accuracy',hue='type', linestyle='dashed')
+    # g=sns.lineplot(data=df, x='depth of GNN', y='Test accuracy',hue='Params update type', linestyle='dashed',
+    #              linewidth=10,
+    #              marker="s", markersize=20, color='orange'
+    #                )
     # g.set(xlabel=None)
     # plt.ylim(75.8,76.6)
     # plt.xticks([1, 2, 3, 4])
+    # # plt.show()
+
+    # plt.figure(dpi=300, figsize=(10, 8))
+    # d = {'depth of GNN': [1, 2, 3, 4,1, 2, 3, 4],
+    #      'Test accuracy': [76.435, 76.23, 76.38, 76.26,76.58,76.45,76.19,75.89],
+    #      'Params update type':['Top-1 accuracy','Top-1 accuracy','Top-1 accuracy','Top-1 accuracy',
+    #                            'Top-5 accuracy','Top-5 accuracy','Top-5 accuracy','Top-5 accuracy']
+    #      }
+    # df = pd.DataFrame(data=d)
+    # g=sns.lineplot(data=df, x='depth of GNN', y='Test accuracy',hue='Params update type', linestyle='dashed',
+    #              linewidth=10,
+    #              marker="s", markersize=20, color='orange'
+    #                )
+    # g.set(xlabel=None)
+    # plt.ylim(75.8,76.6)
+    # plt.xticks([1, 2, 3, 4])
+    # # plt.show()
+
+    plt.figure(dpi=300, figsize=(10, 8))
+    df = pd.DataFrame({"depth of GNN": [1, 2, 3, 4],
+                       "Top-1 accuracy": [76.435, 76.23, 76.38, 76.26],
+                       "Top-5 accuracy": [94.41, 94.44, 94.37, 94.37]})
+    g = sns.lineplot(data=df,x="depth of GNN", y="Top-1 accuracy", linestyle='dashed',
+                 linewidth=10,
+                 marker="s", markersize=20, color='orange',
+                label="Top-1 acc"
+                 )
+    g.set_ylim(76.1,77.1)
+    g2 = g.twinx()
+    sns.lineplot(data=df,x="depth of GNN", y="Top-5 accuracy", ax=g2, linestyle='dashed',
+            linewidth=10,
+            marker="s", markersize=20,
+                 label="Top-5 acc"
+            )
+    # g2.set_ylabel('Top-5 accuracy')
+    # g.figure.legend()
+    g2.set_ylim(94.1, 94.6)
+    g.set(xlabel=None)
+    g2.set(ylabel=None)
+    # plt.legend(labels=['Top-1 acc', 'Top-5 acc'])
+    # 获取第一个轴和第二个轴的线
+    lines_1, labels_1 = g.get_legend_handles_labels()
+    lines_2, labels_2 = g2.get_legend_handles_labels()
+    # 合并图例
+    lines = lines_1 + lines_2
+    labels = labels_1 + labels_2
+    # 添加图例
+    g.legend().set_visible(False)
+    plt.legend(lines,labels)
+    # g.set_ylabel('Test accuracy')
+    g2.set_ylabel('Top-5 accuracy')
+    # plt.ylim(75.8, 76.6)
+    plt.xticks([1, 2, 3, 4])
+
     # plt.show()
 
-    d = {'beta': [0.3, 3, 15, 30],
-         'Test accuracy': [75.11, 76.38, 76.17, 75.6],
-         }
-    df = pd.DataFrame(data=d)
+    # plt.figure(dpi=300, figsize=(10, 8))
+    # d = {'depth of GNN': [1, 2, 3, 4, 1, 2, 3, 4],
+    #      'Top-5 accuracy': [94.41, 94.44, 94.37, 94.37, 94.34, 94.3, 94.02, 93.9],
+    #      'Params update type': ['momentum', 'momentum', 'momentum', 'momentum', 'share', 'share', 'share', 'share']
+    #      }
+    # df = pd.DataFrame(data=d)
+    # g = sns.lineplot(data=df, x='depth of GNN', y='Top-5 accuracy', hue='Params update type', linestyle='dashed',
+    #                  linewidth=10,
+    #                  marker="s", markersize=20, color='orange'
+    #                  )
+    # g.set(xlabel=None)
+    # # plt.ylim(75.8, 76.6)
+    # plt.xticks([1, 2, 3, 4])
+    # plt.show()
 
-    g = sns.lineplot(data=df, x='beta', y='Test accuracy', linestyle='dashed')
-    # plt.xlabel(r'$\beta$')
-    g.set(xlabel=None)
-    plt.xticks([0.3, 3, 15, 30])
-    # plt.xscale('log')
-    plt.ylim(75, 76.5)
-    plt.show()
+    # plt.figure(dpi=300, figsize=(10, 8))
+    # d = {'beta': [0.3, 3, 15, 30],
+    #      'Test accuracy': [75.11, 76.38, 76.17, 75.6],
+    #      }
+    # df = pd.DataFrame(data=d)
+    # g = sns.lineplot(data=df, x='beta', y='Test accuracy', linestyle='dashed',
+    #                  linewidth=10,
+    #                  marker="s",markersize=20, color='orange')
+    # # plt.xlabel(r'$\beta$')
+    # g.set(xlabel=None)
+    # plt.xticks([0.3, 3,10, 15,20, 30])
+    # # plt.xscale('log')
+    # plt.ylim(75, 76.5)
+    # plt.tight_layout()
+    # plt.show()
 
     # df = pd.read_csv('./save/plot/losses.csv')
     # df=df[:150]
     # its = df[['Epoch', 'its']]
     # its=its.rename(columns={'its': 'Loss'})
-    # its['type']=r'$L_{\mathrm{IKD}}$'
+    # its['type']=r'$\mathcal{L}_{\mathrm{IKD}}$'
     # gtt = df[['Epoch', 'gtt']]
     # gtt=gtt.rename(columns={'gtt': 'Loss'})
-    # gtt['type'] = r'$L_{\mathrm{GCL}}$'
+    # gtt['type'] = r'$\mathcal{L}_{\mathrm{GCL}}$'
     # gts = df[['Epoch', 'gts']]
     # gts=gts.rename(columns={'gts': 'Loss'})
-    # gts['type'] =r'$L_{\mathrm{GKD}}$'
-    #
+    # gts['type'] =r'$\mathcal{L}_{\mathrm{GKD}}$'
     # data=pd.concat([its,gts,gtt])
     # data = data.reset_index()
-    # g=sns.lineplot(data=data, x='Epoch',y='Loss',hue='type', linestyle='dashed')
+    # plt.figure(dpi=300,figsize=(10,10))
+    # g=sns.lineplot(data=data, x='Epoch',y='Loss',hue='type',
+    #                # dashes=[(2, 2), (2, 2)],
+    #                # linestyle='dashed',
+    #                linestyle='--',
+    #                linewidth=8,
+    #                # marker=".",markersize=8, color='orange'
+    #                )
+    # # 获取当前图表的 Axes 对象
+    # ax = plt.gca()
+    # # 设置图例为虚线
+    # handles, labels = ax.get_legend_handles_labels()
+    # ax.legend(handles=handles, labels=labels)
+    # for line in g.get_lines():
+    #     line.set_linestyle('--')
+    #     line.set_linewidth(6)
+    # plt.legend()
     # g.legend_.set_title(None)
-    #
+
     # plt.show()
+
+    # plt.figure(dpi=300, figsize=(10, 8))
+    # d = {'Threshold': [-0.1,0,0.25,0.5,0.75],
+    #      'Test accuracy': [76.77,76.78,76.35,76.45,76.28],
+    #      }
+    # df = pd.DataFrame(data=d)
+    # g=sns.lineplot(data=df, x='Threshold', y='Test accuracy', linestyle='dashed',
+    #                linewidth=10,
+    #                marker="s",markersize=20, color='orange')
+    # g.set(xlabel=None)
+    # # g.set_ylabel('Test accuracy',fontsize=2)
+    # # plt.xscale('log')
+    # plt.xticks([-0.15,0,0.25,0.5,0.75])
+    # plt.ylim(76.2, 76.9)
+    plt.tight_layout()
+    plt.show()
 
 
 # line_ploter()
+
 
 # def bar_ploter():
 #     # 字体
@@ -476,7 +594,7 @@ def umap_ploter():
     cifar100_train = torchvision.datasets.CIFAR100(root='../../data/cifar-100-python', train=True, download=True,
                                                    transform=transform)
     # train_loader = torch.utils.data.DataLoader(cifar100_train, batch_size=int(len(cifar100_train) / 10), shuffle=True)
-    method='gckd'
+    method = 'gckd'
     embedding_type = 'IL'
     # length=1000
     # # Load CIFAR-100 sub-dataset
@@ -485,9 +603,9 @@ def umap_ploter():
     # targets=[0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
     # targets=[1, 5, 7, 8, 9,10,11,13,14,17]
     # targets = [1, 5, 7, 8, 9, 13, 14, 17,20,22]
-    targets = [1, 5, 7, 9, 13, 14, 17, 20, 22,24]
+    targets = [1, 5, 7, 9, 13, 14, 17, 20, 22, 24]
     # targets = [1, 5, 7, 9, 13, 14, 17, 20, 22, 25]
-    mapping_dict={v:k*2 for k,v in enumerate(targets)}
+    mapping_dict = {v: k * 2 for k, v in enumerate(targets)}
     print(mapping_dict)
 
     desired_indices = [i for i, target in enumerate(cifar100_train.targets[:18000]) if
@@ -502,10 +620,10 @@ def umap_ploter():
     # teacher
     teacher_path = './save/teachers/models/resnet32x4_vanilla/resnet32x4_best.pth'
     # student
-    if method=='gckd':
+    if method == 'gckd':
         # student_path = './save/students/models/S_resnet8x4-T_resnet32x4-D_cifar100_64-M_gckd_1-G_TAG_2_momentum-A_8-adv_None_0.1_0.0-L_None-c_1.0-d_1.0-m_1.0-b_3.0-r_1.0-lr_None-clT_0.07-kdT_4-28_1/resnet8x4_best.pth'
         student_path = './save/students/models/S_resnet8x4-T_resnet32x4-D_cifar100_64-M_gckd_1-G_TAG_2_momentum-A_8-adv_None_0.1_0.0-L_None-c_1.0-d_0.0-m_1.0-b_3.0-r_1.0-lr_None-clT_0.07-kdT_4-261_1/resnet8x4_best.pth'
-    elif method=='crd':
+    elif method == 'crd':
         student_path = './save/students/models/S_resnet8x4-T_resnet32x4-D_cifar100_64-M_crd_1-G_TAG_2_momentum-A_8-adv_None_0.0_0.0-L_None-c_1.0-d_1.0-m_0.0-b_3.0-r_1.0-lr_None-clT_0.07-kdT_4-557_1/resnet8x4_best.pth'
     n_cls = 100
 
@@ -526,7 +644,7 @@ def umap_ploter():
     model_student.load_state_dict(checkpoint['model'])
 
     # load gckd
-    if method =='gckd':
+    if method == 'gckd':
         last_feature = 1
 
         # load projector
@@ -565,11 +683,11 @@ def umap_ploter():
             elif last_feature == 2:
                 trans_feat_s, trans_feat_t, pred_feat_s = transfer(trans_feat_s[-2], feat_t[-2], cls_t)
         else:
-            trans_feat_s=trans_feat_s[-1]
+            trans_feat_s = trans_feat_s[-1]
         npoit = feat_t[-1].shape[0]
         embedding_matrix_t = feat_t[-1].cpu().detach().numpy()
         embedding_matrix_s = trans_feat_s.cpu().detach().numpy()
-        save_path="./save/plot/UMAP_"+method+'_'+embedding_type
+        save_path = "./save/plot/UMAP_" + method + '_' + embedding_type
     elif embedding_type == 'IL':
         # get one batch
 
@@ -583,8 +701,8 @@ def umap_ploter():
 
         del images
         gc.collect()
-        if method=='gckd':
-        # projector
+        if method == 'gckd':
+            # projector
             if last_feature == 1:
                 trans_feat_s, pred_feat_s = transfer(trans_feat_s[-1], cls_t)
             elif last_feature == 2:
@@ -592,7 +710,7 @@ def umap_ploter():
         npoit = feat_t[-1].shape[0]
         embedding_matrix_t = logit_t.cpu().detach().numpy()
         embedding_matrix_s = pred_feat_s.cpu().detach().numpy()
-        save_path="./save/plot/UMAP_"+method+'_'+embedding_type
+        save_path = "./save/plot/UMAP_" + method + '_' + embedding_type
 
     # save
     # visual
@@ -605,20 +723,20 @@ def umap_ploter():
     student_embeddings = embeddings[npoit:, :]
 
     ## combine
-    fig=plt.figure(figsize=(9, 8))
-    plt.scatter(embeddings[:, 0], embeddings[:, 1], c=torch.cat((labels,labels+1),0), marker='o', cmap='tab20', s=2)
-    plt.colorbar(boundaries=np.arange(len(targets)*2+1) - 0.5).set_ticks(np.arange(len(targets)*2))
+    fig = plt.figure(figsize=(9, 8))
+    plt.scatter(embeddings[:, 0], embeddings[:, 1], c=torch.cat((labels, labels + 1), 0), marker='o', cmap='tab20', s=2)
+    plt.colorbar(boundaries=np.arange(len(targets) * 2 + 1) - 0.5).set_ticks(np.arange(len(targets) * 2))
     # plt.title('UMAP visualization embeddings')
     fig.tight_layout()
-    plt.savefig(save_path+"ST.png")
+    plt.savefig(save_path + "ST.png")
     plt.show()
 
     fig = plt.figure(figsize=(8, 8))
-    plt.scatter(student_embeddings[:, 0], student_embeddings[:, 1], c=labels, marker='o',cmap='tab10', s=2)
+    plt.scatter(student_embeddings[:, 0], student_embeddings[:, 1], c=labels, marker='o', cmap='tab10', s=2)
     # plt.colorbar(boundaries=np.arange(11) - 0.5).set_ticks(np.arange(10))
     # plt.title('UMAP visualization student embeddings')
     fig.tight_layout()
-    plt.savefig(save_path+"S.png")
+    plt.savefig(save_path + "S.png")
     plt.show()
 
     plt.cla()
@@ -627,8 +745,7 @@ def umap_ploter():
     # plt.colorbar(boundaries=np.arange(11) - 0.5).set_ticks(np.arange(10))
     # plt.title('UMAP visualization teacher embeddings')
     fig.tight_layout()
-    plt.savefig(save_path+"T.png")
+    plt.savefig(save_path + "T.png")
     plt.show()
 
-
-umap_ploter()
+# umap_ploter()

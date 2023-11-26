@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project version="4">
-  <component name="PublishConfigData" autoUpload="Always" serverName="tongqiang@202.204.161.66:22 password" remoteFilesAllowedToDisappearOnAutoupload="false">
+  <component name="PublishConfigData" autoUpload="Always" serverName="tongqiang@219.224.5.244:22 password" remoteFilesAllowedToDisappearOnAutoupload="false">
     <serverData>
       <paths name="daisy@202.204.161.67:22">
         <serverdata>
@@ -16,20 +16,6 @@
           </mappings>
         </serverdata>
       </paths>
-      <paths name="root@180.184.103.46:28271 password">
-        <serverdata>
-          <mappings>
-            <mapping deploy="/GCKD" local="$PROJECT_DIR$" web="/" />
-          </mappings>
-        </serverdata>
-      </paths>
-      <paths name="root@180.184.103.46:28271 password (1)">
-        <serverdata>
-          <mappings>
-            <mapping deploy="/GCKD" local="$PROJECT_DIR$" />
-          </mappings>
-        </serverdata>
-      </paths>
       <paths name="tongqiang@202.204.161.66:22 password">
         <serverdata>
           <mappings>
@@ -41,6 +27,13 @@
         <serverdata>
           <mappings>
             <mapping local="$PROJECT_DIR$" web="/" />
+          </mappings>
+        </serverdata>
+      </paths>
+      <paths name="tongqiang@219.224.5.244:22 password">
+        <serverdata>
+          <mappings>
+            <mapping deploy="/home/tongqiang/PycharmProjects/GCKD/" local="$PROJECT_DIR$" web="/" />
           </mappings>
         </serverdata>
       </paths>

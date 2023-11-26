@@ -4,4 +4,4 @@ from .KD import DistillKL
 from .SP import Similarity
 from .VID import VIDLoss
 from .SemCKD import SemCKDLoss
-from .GNN import GNNLoss
+# from .GNN import GNNLoss

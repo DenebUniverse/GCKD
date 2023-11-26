@@ -21,22 +21,23 @@ import torch.backends.cudnn as cudnn
 from torch.utils.tensorboard import SummaryWriter
 
 from dataset.tinyimagenet import get_tinyimagenet_dataloader
-from dataset.imagenet_dali import get_dali_data_loader
-from dataset.tinyimagenet_dali import get_tiny_dali_data_loader
+# from dataset.imagenet_dali import get_dali_data_loader
+# from dataset.tinyimagenet_dali import get_tiny_dali_data_loader
 from distiller_zoo.GLKD import GL_MoCo, GCKD
 from models import model_dict
 from distiller_zoo.SimKD import ConvReg, SelfA, SRRL, SimKD
 
 from dataset.cifar100 import get_cifar100_dataloaders, get_cifar100_dataloaders_sample
-from dataset.imagenet import get_imagenet_dataloader, get_dataloader_sample
+# from dataset.imagenet import get_imagenet_dataloader, get_dataloader_sample
 
 from helper.loops import train_distill as train, validate_vanilla, validate_distill
 from helper.util import save_dict_to_json, reduce_tensor, adjust_learning_rate
 
 from crd.criterion import CRDLoss
-from distiller_zoo import DistillKL, HintLoss, Attention, Similarity, VIDLoss, SemCKDLoss, GNNLoss
+from distiller_zoo import DistillKL, HintLoss, Attention, Similarity, VIDLoss, SemCKDLoss#, GNNLoss
 
 split_symbol = '_'
+print(os.getcwd())
 
 
 def parse_option():
@@ -67,7 +68,7 @@ def parse_option():
     parser.add_argument('--trial', type=str, default='1', help='trial id')
     parser.add_argument('--kd_T', type=float, default=4, help='temperature for KD distillation')
     parser.add_argument('--cl_T', type=float, default=0.07, help='temperature for CL distillation')
-    parser.add_argument('--distill', type=str, default='kd', choices=['kd', 'hint', 'attention', 'similarity', 'vid',
+    parser.add_argument('--distill', type=str, default='gckd', choices=['kd', 'hint', 'attention', 'similarity', 'vid',
                                                                       'crd', 'semckd', 'srrl', 'simkd',
                                                                       'gld', 'gckd'])
     parser.add_argument('-c', '--cls', type=float, default=1.0, help='weight for classification')
@@ -100,6 +101,7 @@ def parse_option():
     parser.add_argument('--gnnencoder', default=None, type=str, choices=['one', 'two', 'momentum'])
     parser.add_argument('--loss_func', default=None, type=str, choices=['softmax', 'cl'])
     parser.add_argument('--adj_k', type=int, default=20)
+    parser.add_argument('--adj_threshold', type=float, default=0.5)
     parser.add_argument('--queue', type=int, default=4096)
 
     # multiprocessing
@@ -113,6 +115,8 @@ def parse_option():
                         help='url used to set up distributed training')
     parser.add_argument('--deterministic', action='store_true', help='Make results reproducible')
     parser.add_argument('--skip-validation', action='store_true', help='Skip validation of teacher')
+
+    parser.add_argument('--embedding_path', type=str, default='./save/students/embedding/')
 
     opt = parser.parse_args()
     opt.skip_validation = True
@@ -151,10 +155,11 @@ def parse_option():
     setup_seed(opt.seed)
 
     # model_name_template = split_symbol.join(['S', '{}_T', '{}_{}_{}_r', '{}_a', '{}_b', '{}_{}'])
-    template = 'S_{}-T_{}-D_{}_{}-M_{}_{}-G_{}_{}_{}-A_{}-Q_{}-adv_{}_{}_{}-L_{}-c_{}-d_{}-m_{}-b_{}-r_{}-lr_{}-clT_{}-kdT_{}-{}_{}'
+    template = 'S_{}-T_{}-D_{}_{}-M_{}_{}-G_{}_{}_{}-A_{}_{}-Q_{}-adv_{}_{}_{}-L_{}-c_{}-d_{}-m_{}-b_{}-r_{}-lr_{}-clT_{}-kdT_{}-{}_{}'
     opt.model_name = template.format(opt.model_s, opt.model_t, opt.dataset, opt.batch_size,
                                      opt.distill, opt.last_feature,
-                                     opt.gnnlayer, opt.layers, opt.gnnencoder, opt.adj_k,
+                                     opt.gnnlayer, opt.layers, opt.gnnencoder,
+                                     opt.adj_k,opt.adj_threshold,
                                      opt.queue,
                                      opt.gadv, opt.NPerturb, opt.EPerturb,
                                      opt.loss_func,
@@ -441,39 +446,39 @@ def main_worker(gpu, ngpus_per_node, opt, tb_writer=None):
         else:
             train_loader, val_loader = get_cifar100_dataloaders(batch_size=opt.batch_size,
                                                                 num_workers=opt.num_workers)
-    elif opt.dataset == 'imagenet':
-        if opt.dali is None:
-            if opt.distill in ['crd']:
-                train_loader, val_loader, n_data, _, train_sampler = get_dataloader_sample(dataset=opt.dataset,
-                                                                                           batch_size=opt.batch_size,
-                                                                                           num_workers=opt.num_workers,
-                                                                                           is_sample=True,
-                                                                                           k=opt.nce_k,
-                                                                                           multiprocessing_distributed=opt.multiprocessing_distributed)
-            else:
-                train_loader, val_loader, train_sampler = get_imagenet_dataloader(dataset=opt.dataset,
-                                                                                  batch_size=opt.batch_size,
-                                                                                  num_workers=opt.num_workers,
-                                                                                  multiprocessing_distributed=opt.multiprocessing_distributed)
-        else:
-            train_loader, val_loader = get_dali_data_loader(opt)
-            pass
-    elif opt.dataset == 'tinyimagenet':
-        if opt.dali is None:
-            if opt.distill in ['crd','hkd']:
-                pass
-                # train_loader, val_loader, n_data = get_tinyimagenet_dataloaders_sample(batch_size=opt.batch_size,
-                #                                                                        num_workers=opt.num_workers,
-                #                                                                        k=opt.nce_k,
-                #                                                                        mode=opt.mode)
-            else:
-                train_loader, val_loader, train_sampler = get_tinyimagenet_dataloader(dataset=opt.dataset,
-                                                                                      batch_size=opt.batch_size,
-                                                                                      num_workers=opt.num_workers,
-                                                                                      multiprocessing_distributed=opt.multiprocessing_distributed)
-        else:
-            train_loader, val_loader = get_tiny_dali_data_loader(opt)
-            pass
+    # elif opt.dataset == 'imagenet':
+    #     if opt.dali is None:
+    #         if opt.distill in ['crd']:
+    #             train_loader, val_loader, n_data, _, train_sampler = get_dataloader_sample(dataset=opt.dataset,
+    #                                                                                        batch_size=opt.batch_size,
+    #                                                                                        num_workers=opt.num_workers,
+    #                                                                                        is_sample=True,
+    #                                                                                        k=opt.nce_k,
+    #                                                                                        multiprocessing_distributed=opt.multiprocessing_distributed)
+    #         else:
+    #             train_loader, val_loader, train_sampler = get_imagenet_dataloader(dataset=opt.dataset,
+    #                                                                               batch_size=opt.batch_size,
+    #                                                                               num_workers=opt.num_workers,
+    #                                                                               multiprocessing_distributed=opt.multiprocessing_distributed)
+    #     else:
+    #         train_loader, val_loader = get_dali_data_loader(opt)
+    #         pass
+    # elif opt.dataset == 'tinyimagenet':
+    #     if opt.dali is None:
+    #         if opt.distill in ['crd','hkd']:
+    #             pass
+    #             # train_loader, val_loader, n_data = get_tinyimagenet_dataloaders_sample(batch_size=opt.batch_size,
+    #             #                                                                        num_workers=opt.num_workers,
+    #             #                                                                        k=opt.nce_k,
+    #             #                                                                        mode=opt.mode)
+    #         else:
+    #             train_loader, val_loader, train_sampler = get_tinyimagenet_dataloader(dataset=opt.dataset,
+    #                                                                                   batch_size=opt.batch_size,
+    #                                                                                   num_workers=opt.num_workers,
+    #                                                                                   multiprocessing_distributed=opt.multiprocessing_distributed)
+    #     else:
+    #         train_loader, val_loader = get_tiny_dali_data_loader(opt)
+    #         pass
     else:
         raise NotImplementedError(opt.dataset)
 
@@ -495,7 +500,6 @@ def main_worker(gpu, ngpus_per_node, opt, tb_writer=None):
 
     # ===================routine=====================
     for epoch in range(1, opt.epochs + 1):
-        #每个epoch干啥 1 调学习率 2训练(前向传播,反向传播) 3测试 4保存最优结果
         torch.cuda.empty_cache()
         if opt.multiprocessing_distributed:
             if opt.dali is None:
@@ -529,7 +533,7 @@ def main_worker(gpu, ngpus_per_node, opt, tb_writer=None):
             # logger.log_value('train_loss', train_loss, epoch)
 
         print('GPU %d validating' % (opt.gpu))
-        test_acc, test_acc_top5, test_loss = validate_distill(val_loader, module_list, criterion_cls, opt)
+        test_acc, test_acc_top5, test_loss = validate_distill(epoch,val_loader, module_list, criterion_cls, opt)
 
         if opt.tb_writer != None:
             opt.tb_writer.add_scalar('acc/test_acc', test_acc, epoch)

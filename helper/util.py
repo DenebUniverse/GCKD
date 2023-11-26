@@ -89,6 +89,10 @@ def reduce_tensor(tensor, world_size = 1, op='avg'):
         rt = torch.true_divide(rt, world_size)
     return rt
 
+def save_embedding(path,mode,epoch,batch_idx,embeddings_dict):
+    torch.save(embeddings_dict, path + '_'+mode + str(epoch)+'_'+str(batch_idx) + ".pth")
+
+
 if __name__ == '__main__':
 
     pass

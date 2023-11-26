@@ -10,6 +10,7 @@ from torch.utils.data.distributed import DistributedSampler
 from torchvision import datasets
 from torchvision import transforms
 
+
 def get_data_folder(dataset='imagenet'):
     """
     return the path to store the data
@@ -25,6 +26,7 @@ def get_data_folder(dataset='imagenet'):
 class ImageFolderInstance(datasets.ImageFolder):
     """: Folder datasets which returns the index of the image as well::
     """
+
     def __getitem__(self, index):
         """
         Args:
@@ -45,6 +47,7 @@ class ImageFolderInstance(datasets.ImageFolder):
 class ImageFolderSample(datasets.ImageFolder):
     """: Folder datasets which returns (img, label, index, contrast_index):
     """
+
     def __init__(self, root, transform=None, target_transform=None,
                  is_sample=False, k=4096):
         super().__init__(root=root, transform=transform, target_transform=target_transform)
@@ -131,8 +134,8 @@ def get_test_loader(dataset='imagenet', batch_size=128, num_workers=8):
     return test_loader
 
 
-def get_dataloader_sample(dataset='imagenet', batch_size=128, num_workers=8, 
-                        is_sample=False, k=4096, multiprocessing_distributed=False):
+def get_dataloader_sample(dataset='imagenet', batch_size=128, num_workers=8,
+                          is_sample=False, k=4096, multiprocessing_distributed=False):
     """Data Loader for ImageNet"""
 
     if dataset == 'imagenet':
@@ -187,7 +190,7 @@ def get_dataloader_sample(dataset='imagenet', batch_size=128, num_workers=8,
     return train_loader, test_loader, len(train_set), len(train_set.classes), train_sampler
 
 
-def get_imagenet_dataloader(dataset='imagenet', batch_size=128, num_workers=16, 
+def get_imagenet_dataloader(dataset='imagenet', batch_size=128, num_workers=16,
                             multiprocessing_distributed=False):
     """
     Data Loader for imagenet
