@@ -232,267 +232,267 @@ class SimKD(nn.Module):
 
 # model
 
-class GL_MoCo(nn.Module):
-    def __init__(self, s_dim, t_dim=128, K=4096, m=0.99, T=0.1, bn_splits=8, symmetric=False, opt=None):
-        super(GL_MoCo, self).__init__()
-
-        self.gama = opt.gama
-        self.K = K
-        self.m = m
-        self.T = T
-        self.symmetric = symmetric
-
-        self.t_dim = t_dim
-
-        # # create the projection head
-
-        self.transfer = SRRL(s_n=s_dim, t_n=t_dim)
-        # self.transfer = SimKD(s_n=s_dim, t_n=t_dim)
-
-        # self.gnn_q = Encoder(t_dim, t_dim, opt.gnnlayer)
-        # self.gnn_k = Encoder(t_dim, t_dim, opt.gnnlayer)
-        self.gnn_q = GNN(t_dim, t_dim, opt.gnnlayer, opt.layers)
-        self.gnn_k = GNN(t_dim, t_dim, opt.gnnlayer, opt.layers)
-
-        for param_t, param_s in zip(self.gnn_q.parameters(), self.gnn_k.parameters()):
-            param_s.data.copy_(param_t.data)  # initialize
-            param_s.requires_grad = False  # not update by gradient
-
-        self.use_forward_tt = False
-        self.adj_k = opt.adj_k
-        self.graphadv = {'NPerturb': opt.NPerturb, "EPerturb": opt.EPerturb, "adv": opt.gadv}
-
-        # create the queue
-        self.register_buffer("queue", torch.randn(t_dim, K))
-        self.queue = nn.functional.normalize(self.queue, dim=0)
-        self.register_buffer("queue_ptr", torch.zeros(1, dtype=torch.long))
-
-    @torch.no_grad()
-    def _momentum_update_key_encoder(self):
-        """
-        Momentum update of the key encoder
-        """
-        for param_q, param_k in zip(self.gnn_q.parameters(), self.gnn_k.parameters()):
-            param_k.data = param_k.data * self.m + param_q.data * (1. - self.m)
-
-    @torch.no_grad()
-    def _dequeue_and_enqueue(self, keys):
-        batch_size = keys.shape[0]
-
-        ptr = int(self.queue_ptr)
-        assert self.K % batch_size == 0  # for simplicity
-
-        # replace the keys at ptr (dequeue and enqueue)
-        # print('ptr',ptr)
-        self.queue[:, ptr:ptr + batch_size] = keys.t()  # transpose
-        ptr = (ptr + batch_size) % self.K  # move pointer
-
-        self.queue_ptr[0] = ptr
-
-    @torch.no_grad()
-    def _batch_shuffle_single_gpu(self, x):
-        """
-        Batch shuffle, for making use of BatchNorm.
-        """
-        # random shuffle index
-        idx_shuffle = torch.randperm(x.shape[0]).cuda()
-
-        # index for restoring
-        idx_unshuffle = torch.argsort(idx_shuffle)
-
-        return x[idx_shuffle], idx_unshuffle
-
-    @torch.no_grad()
-    def _batch_unshuffle_single_gpu(self, x, idx_unshuffle):
-        """
-        Undo batch shuffle.
-        """
-        return x[idx_unshuffle]
-
-    def emb2graph(self, q, queue, adj_k=20, adj=None):  # adj share A
-        X = torch.cat([q, queue.permute(1, 0)], dim=0)
-        if adj == None:
-            G, adj = knn_graph(X, k=adj_k)
-        else:
-            G = DGLGraph(adj, readonly=True)
-        G = G.to(device)
-        G.ndata['h'] = X
-        return G, adj
-
-    def contrastive_loss(self, im_q, im_k):
-        batch_size = im_q.shape[0]
-        # image contrastive loss
-        # compute query features
-        # q = self.encoder_t(im_q)  # queries: NxC
-        q = im_q  # queries: NxC
-        q = nn.functional.normalize(q, dim=1)  # already normalized
-
-        # # compute key features
-        # with torch.no_grad():  # no gradient to keys
-        #     # shuffle for making use of BN
-        #     im_k_, idx_unshuffle = self._batch_shuffle_single_gpu(im_k)
-        #
-        #     k = self.encoder_s(im_k_)  # keys: NxC
-        #     k = nn.functional.normalize(k, dim=1)  # already normalized
-        #
-        #     # undo shuffle
-        #     k = self._batch_unshuffle_single_gpu(k, idx_unshuffle)
-        k = im_k
-        k = nn.functional.normalize(k, dim=1)  # already normalized
-
-        # compute logits
-        # Einstein sum is more intuitive
-        # positive logits: Nx1
-        l_pos = torch.einsum('nc,nc->n', [q, k]).unsqueeze(-1)
-        # negative logits: NxK
-        l_neg = torch.einsum('nc,ck->nk', [q, self.queue.clone().detach()])
-
-        # logits: Nx(1+K)
-        logits = torch.cat([l_pos, l_neg], dim=1)
-
-        # apply temperature
-        logits /= self.T
-
-        # labels: positive key indicators
-        labels = torch.zeros(logits.shape[0], dtype=torch.long).cuda()
-
-        loss_its = nn.CrossEntropyLoss().cuda()(logits, labels)
-
-        ## 构造图
-        Graph_q, _ = self.emb2graph(q, self.queue.clone().detach(), adj_k=self.adj_k)
-        Graph_k, _ = self.emb2graph(k, self.queue.clone().detach(), adj_k=self.adj_k)
-
-        ## graph contrastive loss
-        # compute query features
-        q_g = self.gnn_q(Graph_q)[:batch_size]  # queries: NxC
-        q_g = nn.functional.normalize(q_g, dim=1)  # already normalized
-
-        k_g = self.gnn_k(Graph_k)[:batch_size]  # queries: NxC
-        # # compute key features
-        # with torch.no_grad():  # no gradient to keys
-        #     # shuffle for making use of BN
-        #     im_k_g, idx_unshuffle = self._batch_shuffle_single_gpu(k_g)
-        #
-        #     k_g = self.encoder_s(im_k_g)  # keys: NxC
-        #     k_g = nn.functional.normalize(k_g, dim=1)  # already normalized
-        #
-        #     # undo shuffle
-        #     k_g = self._batch_unshuffle_single_gpu(k_g, idx_unshuffle)
-        k_g = nn.functional.normalize(k_g, dim=1)
-
-        # compute logits
-        # Einstein sum is more intuitive
-        # positive logits: Nx1
-        l_pos = torch.einsum('nc,nc->n', [q_g, k_g]).unsqueeze(-1)
-        # negative logits: NxK
-        l_neg = torch.einsum('nc,ck->nk', [q_g, self.queue.clone().detach()])
-
-        # logits: Nx(1+K)
-        logits = torch.cat([l_pos, l_neg], dim=1)
-
-        # apply temperature
-        logits /= self.T
-
-        # labels: positive key indicators
-        labels = torch.zeros(logits.shape[0], dtype=torch.long).cuda()
-
-        loss_gts = nn.CrossEntropyLoss().cuda()(logits, labels)
-
-        # total loss
-        loss = loss_its + loss_gts
-        return loss, q, k, loss_its, loss_gts
-
-    def contrastive_adv(self, im_q):
-        batch_size = im_q.shape[0]
-        # image contrastive loss
-        # compute query features
-        # q = self.encoder_t(im_q)  # queries: NxC
-        q = im_q  # queries: NxC
-        q = nn.functional.normalize(q, dim=1)  # already normalized
-        k = q
-
-        ## 构造图
-        Graph_q, _ = self.emb2graph(q, self.queue.clone().detach(), adj_k=self.adj_k)
-        Graph_k, adj = self.emb2graph(k, self.queue.clone().detach(), adj_k=self.adj_k)
-
-        ## 图增强
-        if self.graphadv['NPerturb'] > 0:
-            Graph_k.ndata['h'] = Graph_k.ndata['h'] + torch.randn(Graph_k.num_nodes(), Graph_k.ndata['h'].shape[1]).to(
-                device) * self.graphadv['NPerturb']
-        if self.graphadv['EPerturb'] > 0:
-            edge_logits = torch.rand((batch_size + self.K) * self.adj_k, 1).to(device)
-            if self.graphadv['adv'] == 'adgcl':
-                emb_src = Graph_k.ndata['h'][adj["src"]]
-                emb_dst = Graph_k.ndata['h'][adj["dst"]]
-                edge_emb = torch.cat([emb_src, emb_dst], 1)
-                edge_logits = self.mlp_edge_model(edge_emb)
-            temperature = 1.0
-            bias = 0.0 + 0.0001  # If bias is 0, we run into problems
-            eps = (bias - (1 - bias)) * torch.rand(edge_logits.size()) + (1 - bias)
-            gate_inputs = torch.log(eps) - torch.log(1 - eps)
-            gate_inputs = gate_inputs.to(device)
-            gate_inputs = (gate_inputs + edge_logits * self.graphadv['EPerturb']) / temperature  # adv_eps[-1, 1]
-            batch_aug_edge_weight = torch.sigmoid(gate_inputs).squeeze()
-            Graph_k.edata['w'] = batch_aug_edge_weight
-
-        ## graph contrastive loss
-        # compute query features
-        q_g = self.gnn_q(Graph_q)[:batch_size]  # queries: NxC
-        q_g = nn.functional.normalize(q_g, dim=1)  # already normalized
-
-        k_g = self.gnn_k(Graph_k)[:batch_size]  # queries: NxC
-        k_g = nn.functional.normalize(k_g, dim=1)
-
-        # compute logits
-        # Einstein sum is more intuitive
-        # positive logits: Nx1
-        l_pos = torch.einsum('nc,nc->n', [q_g, k_g]).unsqueeze(-1)
-        # negative logits: NxK
-        l_neg = torch.einsum('nc,ck->nk', [q_g, self.queue.clone().detach()])
-
-        # logits: Nx(1+K)
-        logits = torch.cat([l_pos, l_neg], dim=1)
-
-        # apply temperature
-        logits /= self.T
-
-        # labels: positive key indicators
-        labels = torch.zeros(logits.shape[0], dtype=torch.long).cuda()
-
-        loss_gtt = nn.CrossEntropyLoss().cuda()(logits, labels)
-
-        return loss_gtt
-
-    def forward_st(self, ims, imt):
-        """
-        Input:
-            im_q: a batch of query images
-            im_k: a batch of key images
-        Output:
-            loss
-        """
-        # update the key encoder
-        with torch.no_grad():  # no gradient to keys
-            self._momentum_update_key_encoder()
-
-        # compute loss
-        if self.symmetric:  # asymmetric loss
-            loss_12, q1, k2, loss_its12, loss_gts12 = self.contrastive_loss(ims, imt)
-            loss_21, q2, k1, loss_its21, loss_gts21 = self.contrastive_loss(ims, imt)
-            loss = loss_12 + loss_21
-            loss_its = loss_its12 + loss_its21
-            loss_gts = loss_gts12 + loss_gts21
-            k = torch.cat([k1, k2], dim=0)
-        else:  # asymmetric loss
-            loss, q, k, loss_its, loss_gts = self.contrastive_loss(ims, imt)
-
-        self._dequeue_and_enqueue(k)
-
-        return loss, loss_its, loss_gts
-
-    def forward(self, ims, imt):
-        return self.contrastive_adv(imt) if self.use_forward_tt else self.forward_st(ims, imt)
-
+# class GL_MoCo(nn.Module):
+#     def __init__(self, s_dim, t_dim=128, K=4096, m=0.99, T=0.1, bn_splits=8, symmetric=False, opt=None):
+#         super(GL_MoCo, self).__init__()
+#
+#         self.gama = opt.gama
+#         self.K = K
+#         self.m = m
+#         self.T = T
+#         self.symmetric = symmetric
+#
+#         self.t_dim = t_dim
+#
+#         # # create the projection head
+#
+#         self.transfer = SRRL(s_n=s_dim, t_n=t_dim)
+#         # self.transfer = SimKD(s_n=s_dim, t_n=t_dim)
+#
+#         # self.gnn_q = Encoder(t_dim, t_dim, opt.gnnlayer)
+#         # self.gnn_k = Encoder(t_dim, t_dim, opt.gnnlayer)
+#         self.gnn_q = GNN(t_dim, t_dim, opt.gnnlayer, opt.layers)
+#         self.gnn_k = GNN(t_dim, t_dim, opt.gnnlayer, opt.layers)
+#
+#         for param_t, param_s in zip(self.gnn_q.parameters(), self.gnn_k.parameters()):
+#             param_s.data.copy_(param_t.data)  # initialize
+#             param_s.requires_grad = False  # not update by gradient
+#
+#         self.use_forward_tt = False
+#         self.adj_k = opt.adj_k
+#         self.graphadv = {'NPerturb': opt.NPerturb, "EPerturb": opt.EPerturb, "adv": opt.gadv}
+#
+#         # create the queue
+#         self.register_buffer("queue", torch.randn(t_dim, K))
+#         self.queue = nn.functional.normalize(self.queue, dim=0)
+#         self.register_buffer("queue_ptr", torch.zeros(1, dtype=torch.long))
+#
+#     @torch.no_grad()
+#     def _momentum_update_key_encoder(self):
+#         """
+#         Momentum update of the key encoder
+#         """
+#         for param_q, param_k in zip(self.gnn_q.parameters(), self.gnn_k.parameters()):
+#             param_k.data = param_k.data * self.m + param_q.data * (1. - self.m)
+#
+#     @torch.no_grad()
+#     def _dequeue_and_enqueue(self, keys):
+#         batch_size = keys.shape[0]
+#
+#         ptr = int(self.queue_ptr)
+#         assert self.K % batch_size == 0  # for simplicity
+#
+#         # replace the keys at ptr (dequeue and enqueue)
+#         # print('ptr',ptr)
+#         self.queue[:, ptr:ptr + batch_size] = keys.t()  # transpose
+#         ptr = (ptr + batch_size) % self.K  # move pointer
+#
+#         self.queue_ptr[0] = ptr
+#
+#     @torch.no_grad()
+#     def _batch_shuffle_single_gpu(self, x):
+#         """
+#         Batch shuffle, for making use of BatchNorm.
+#         """
+#         # random shuffle index
+#         idx_shuffle = torch.randperm(x.shape[0]).cuda()
+#
+#         # index for restoring
+#         idx_unshuffle = torch.argsort(idx_shuffle)
+#
+#         return x[idx_shuffle], idx_unshuffle
+#
+#     @torch.no_grad()
+#     def _batch_unshuffle_single_gpu(self, x, idx_unshuffle):
+#         """
+#         Undo batch shuffle.
+#         """
+#         return x[idx_unshuffle]
+#
+#     def emb2graph(self, q, queue, adj_k=20, adj=None):  # adj share A
+#         X = torch.cat([q, queue.permute(1, 0)], dim=0)
+#         if adj == None:
+#             G, adj = knn_graph(X, k=adj_k)
+#         else:
+#             G = DGLGraph(adj, readonly=True)
+#         G = G.to(device)
+#         G.ndata['h'] = X
+#         return G, adj
+#
+#     def contrastive_loss(self, im_q, im_k):
+#         batch_size = im_q.shape[0]
+#         # image contrastive loss
+#         # compute query features
+#         # q = self.encoder_t(im_q)  # queries: NxC
+#         q = im_q  # queries: NxC
+#         q = nn.functional.normalize(q, dim=1)  # already normalized
+#
+#         # # compute key features
+#         # with torch.no_grad():  # no gradient to keys
+#         #     # shuffle for making use of BN
+#         #     im_k_, idx_unshuffle = self._batch_shuffle_single_gpu(im_k)
+#         #
+#         #     k = self.encoder_s(im_k_)  # keys: NxC
+#         #     k = nn.functional.normalize(k, dim=1)  # already normalized
+#         #
+#         #     # undo shuffle
+#         #     k = self._batch_unshuffle_single_gpu(k, idx_unshuffle)
+#         k = im_k
+#         k = nn.functional.normalize(k, dim=1)  # already normalized
+#
+#         # compute logits
+#         # Einstein sum is more intuitive
+#         # positive logits: Nx1
+#         l_pos = torch.einsum('nc,nc->n', [q, k]).unsqueeze(-1)
+#         # negative logits: NxK
+#         l_neg = torch.einsum('nc,ck->nk', [q, self.queue.clone().detach()])
+#
+#         # logits: Nx(1+K)
+#         logits = torch.cat([l_pos, l_neg], dim=1)
+#
+#         # apply temperature
+#         logits /= self.T
+#
+#         # labels: positive key indicators
+#         labels = torch.zeros(logits.shape[0], dtype=torch.long).cuda()
+#
+#         loss_its = nn.CrossEntropyLoss().cuda()(logits, labels)
+#
+#         ## 构造图
+#         Graph_q, _ = self.emb2graph(q, self.queue.clone().detach(), adj_k=self.adj_k)
+#         Graph_k, _ = self.emb2graph(k, self.queue.clone().detach(), adj_k=self.adj_k)
+#
+#         ## graph contrastive loss
+#         # compute query features
+#         q_g = self.gnn_q(Graph_q)[:batch_size]  # queries: NxC
+#         q_g = nn.functional.normalize(q_g, dim=1)  # already normalized
+#
+#         k_g = self.gnn_k(Graph_k)[:batch_size]  # queries: NxC
+#         # # compute key features
+#         # with torch.no_grad():  # no gradient to keys
+#         #     # shuffle for making use of BN
+#         #     im_k_g, idx_unshuffle = self._batch_shuffle_single_gpu(k_g)
+#         #
+#         #     k_g = self.encoder_s(im_k_g)  # keys: NxC
+#         #     k_g = nn.functional.normalize(k_g, dim=1)  # already normalized
+#         #
+#         #     # undo shuffle
+#         #     k_g = self._batch_unshuffle_single_gpu(k_g, idx_unshuffle)
+#         k_g = nn.functional.normalize(k_g, dim=1)
+#
+#         # compute logits
+#         # Einstein sum is more intuitive
+#         # positive logits: Nx1
+#         l_pos = torch.einsum('nc,nc->n', [q_g, k_g]).unsqueeze(-1)
+#         # negative logits: NxK
+#         l_neg = torch.einsum('nc,ck->nk', [q_g, self.queue.clone().detach()])
+#
+#         # logits: Nx(1+K)
+#         logits = torch.cat([l_pos, l_neg], dim=1)
+#
+#         # apply temperature
+#         logits /= self.T
+#
+#         # labels: positive key indicators
+#         labels = torch.zeros(logits.shape[0], dtype=torch.long).cuda()
+#
+#         loss_gts = nn.CrossEntropyLoss().cuda()(logits, labels)
+#
+#         # total loss
+#         loss = loss_its + loss_gts
+#         return loss, q, k, loss_its, loss_gts
+#
+#     def contrastive_adv(self, im_q):
+#         batch_size = im_q.shape[0]
+#         # image contrastive loss
+#         # compute query features
+#         # q = self.encoder_t(im_q)  # queries: NxC
+#         q = im_q  # queries: NxC
+#         q = nn.functional.normalize(q, dim=1)  # already normalized
+#         k = q
+#
+#         ## 构造图
+#         Graph_q, _ = self.emb2graph(q, self.queue.clone().detach(), adj_k=self.adj_k)
+#         Graph_k, adj = self.emb2graph(k, self.queue.clone().detach(), adj_k=self.adj_k)
+#
+#         ## 图增强
+#         if self.graphadv['NPerturb'] > 0:
+#             Graph_k.ndata['h'] = Graph_k.ndata['h'] + torch.randn(Graph_k.num_nodes(), Graph_k.ndata['h'].shape[1]).to(
+#                 device) * self.graphadv['NPerturb']
+#         if self.graphadv['EPerturb'] > 0:
+#             edge_logits = torch.rand((batch_size + self.K) * self.adj_k, 1).to(device)
+#             if self.graphadv['adv'] == 'adgcl':
+#                 emb_src = Graph_k.ndata['h'][adj["src"]]
+#                 emb_dst = Graph_k.ndata['h'][adj["dst"]]
+#                 edge_emb = torch.cat([emb_src, emb_dst], 1)
+#                 edge_logits = self.mlp_edge_model(edge_emb)
+#             temperature = 1.0
+#             bias = 0.0 + 0.0001  # If bias is 0, we run into problems
+#             eps = (bias - (1 - bias)) * torch.rand(edge_logits.size()) + (1 - bias)
+#             gate_inputs = torch.log(eps) - torch.log(1 - eps)
+#             gate_inputs = gate_inputs.to(device)
+#             gate_inputs = (gate_inputs + edge_logits * self.graphadv['EPerturb']) / temperature  # adv_eps[-1, 1]
+#             batch_aug_edge_weight = torch.sigmoid(gate_inputs).squeeze()
+#             Graph_k.edata['w'] = batch_aug_edge_weight
+#
+#         ## graph contrastive loss
+#         # compute query features
+#         q_g = self.gnn_q(Graph_q)[:batch_size]  # queries: NxC
+#         q_g = nn.functional.normalize(q_g, dim=1)  # already normalized
+#
+#         k_g = self.gnn_k(Graph_k)[:batch_size]  # queries: NxC
+#         k_g = nn.functional.normalize(k_g, dim=1)
+#
+#         # compute logits
+#         # Einstein sum is more intuitive
+#         # positive logits: Nx1
+#         l_pos = torch.einsum('nc,nc->n', [q_g, k_g]).unsqueeze(-1)
+#         # negative logits: NxK
+#         l_neg = torch.einsum('nc,ck->nk', [q_g, self.queue.clone().detach()])
+#
+#         # logits: Nx(1+K)
+#         logits = torch.cat([l_pos, l_neg], dim=1)
+#
+#         # apply temperature
+#         logits /= self.T
+#
+#         # labels: positive key indicators
+#         labels = torch.zeros(logits.shape[0], dtype=torch.long).cuda()
+#
+#         loss_gtt = nn.CrossEntropyLoss().cuda()(logits, labels)
+#
+#         return loss_gtt
+#
+#     def forward_st(self, ims, imt):
+#         """
+#         Input:
+#             im_q: a batch of query images
+#             im_k: a batch of key images
+#         Output:
+#             loss
+#         """
+#         # update the key encoder
+#         with torch.no_grad():  # no gradient to keys
+#             self._momentum_update_key_encoder()
+#
+#         # compute loss
+#         if self.symmetric:  # asymmetric loss
+#             loss_12, q1, k2, loss_its12, loss_gts12 = self.contrastive_loss(ims, imt)
+#             loss_21, q2, k1, loss_its21, loss_gts21 = self.contrastive_loss(ims, imt)
+#             loss = loss_12 + loss_21
+#             loss_its = loss_its12 + loss_its21
+#             loss_gts = loss_gts12 + loss_gts21
+#             k = torch.cat([k1, k2], dim=0)
+#         else:  # asymmetric loss
+#             loss, q, k, loss_its, loss_gts = self.contrastive_loss(ims, imt)
+#
+#         self._dequeue_and_enqueue(k)
+#
+#         return loss, loss_its, loss_gts
+#
+#     def forward(self, ims, imt):
+#         return self.contrastive_adv(imt) if self.use_forward_tt else self.forward_st(ims, imt)
+#
 
 class GCKD(nn.Module):
     def __init__(self, s_dim, t_dim=128, K=4096, m=0.99, T=0.1, bn_splits=8, symmetric=False, opt=None):

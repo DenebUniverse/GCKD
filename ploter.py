@@ -6,7 +6,7 @@ import pandas as pd
 from torch import nn
 import torch.nn.functional as F
 
-from distiller_zoo.GLKD import GCKD, SRRL, SimKD
+from distiller_zoo.GCKD import GCKD, SRRL, SimKD
 from models import model_dict
 
 

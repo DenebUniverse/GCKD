@@ -23,7 +23,8 @@ from torch.utils.tensorboard import SummaryWriter
 from dataset.tinyimagenet import get_tinyimagenet_dataloader
 # from dataset.imagenet_dali import get_dali_data_loader
 # from dataset.tinyimagenet_dali import get_tiny_dali_data_loader
-from distiller_zoo.GLKD import GL_MoCo, GCKD
+from distiller_zoo.GCKD import GCKD
+# from distiller_zoo.GCKD import GL_MoCo, GCKD
 from models import model_dict
 from distiller_zoo.SimKD import ConvReg, SelfA, SRRL, SimKD
 
@@ -34,7 +35,7 @@ from helper.loops import train_distill as train, validate_vanilla, validate_dist
 from helper.util import save_dict_to_json, reduce_tensor, adjust_learning_rate
 
 from crd.criterion import CRDLoss
-from distiller_zoo import DistillKL, HintLoss, Attention, Similarity, VIDLoss, SemCKDLoss#, GNNLoss
+from distiller_zoo import DistillKL, HintLoss, Attention, Similarity, VIDLoss, SemCKDLoss  # , GNNLoss
 
 split_symbol = '_'
 print(os.getcwd())
@@ -69,8 +70,9 @@ def parse_option():
     parser.add_argument('--kd_T', type=float, default=4, help='temperature for KD distillation')
     parser.add_argument('--cl_T', type=float, default=0.07, help='temperature for CL distillation')
     parser.add_argument('--distill', type=str, default='gckd', choices=['kd', 'hint', 'attention', 'similarity', 'vid',
-                                                                      'crd', 'semckd', 'srrl', 'simkd',
-                                                                      'gld', 'gckd'])
+                                                                        'crd', 'semckd', 'srrl', 'simkd',
+                                                                        # 'gld',
+                                                                        'gckd'])
     parser.add_argument('-c', '--cls', type=float, default=1.0, help='weight for classification')
     parser.add_argument('-d', '--div', type=float, default=1.0, help='weight balance for KD')
     parser.add_argument('-m', '--mu', type=float, default=None, help='weight balance for feature l2 loss')
@@ -159,7 +161,7 @@ def parse_option():
     opt.model_name = template.format(opt.model_s, opt.model_t, opt.dataset, opt.batch_size,
                                      opt.distill, opt.last_feature,
                                      opt.gnnlayer, opt.layers, opt.gnnencoder,
-                                     opt.adj_k,opt.adj_threshold,
+                                     opt.adj_k, opt.adj_threshold,
                                      opt.queue,
                                      opt.gadv, opt.NPerturb, opt.EPerturb,
                                      opt.loss_func,
@@ -209,12 +211,12 @@ best_acc = 0
 total_time = time.time()
 
 
-def main():#1设置超参数2设置在哪存结果3开始跑模型
+def main():  # 1设置超参数2设置在哪存结果3开始跑模型
     opt = parse_option()
 
     # tensorboard logger
     print("tensorboard --logdir " + opt.tb_folder + "/tb_logs")
-    tb_writer = SummaryWriter(log_dir=opt.tb_folder + '/tb_logs', comment='GLD')
+    tb_writer = SummaryWriter(log_dir=opt.tb_folder + '/tb_logs', comment='GCKD')
     with open(os.path.join(opt.tb_path, 'tensorbroad.txt'), 'a+') as f:
         f.write("tensorboard --logdir " + opt.tb_folder + "/tb_logs \n")
     save_file = os.path.join(opt.tb_path, opt.model_name, 'log{trial}.csv'.format(trial=opt.trial))
@@ -244,7 +246,7 @@ def main():#1设置超参数2设置在哪存结果3开始跑模型
 
 
 def main_worker(gpu, ngpus_per_node, opt, tb_writer=None):
-    #1加载模型 2加载策略loss 3optimizer 4加载数据集 5训练epoch
+    # 1加载模型 2加载策略loss 3optimizer 4加载数据集 5训练epoch
     global best_acc, total_time
     opt.gpu = int(gpu)
     opt.gpu_id = int(gpu)
@@ -364,23 +366,23 @@ def main_worker(gpu, ngpus_per_node, opt, tb_writer=None):
         criterion_kd = nn.MSELoss(opt)
         module_list.append(model_simkd)
         trainable_list.append(model_simkd)
-    elif opt.distill == 'gld':
-        s_n = feat_s[-1].shape[1]
-        t_n = feat_t[-1].shape[1]
-        # print("s_dim",s_n)
-        # print("t_dim",t_n)
-        momentum_rate = {'one': 0, 'two': 1, 'momentum': 0.99}
-        criterion_kd = GL_MoCo(s_dim=s_n, t_dim=t_n, m=momentum_rate[opt.gnnencoder],
-                               opt=opt)  # m momentum rate one:0 two:1 momentum 0.99
-        module_list.append(criterion_kd.transfer)
-        trainable_list.append(criterion_kd.transfer)
-        # trainable_list.append(criterion_kd.gnn_q)
-        # trainable_list.append(criterion_kd.gnn_k)
+    # elif opt.distill == 'gld':
+    #     s_n = feat_s[-1].shape[1]
+    #     t_n = feat_t[-1].shape[1]
+    #     # print("s_dim",s_n)
+    #     # print("t_dim",t_n)
+    #     momentum_rate = {'one': 0, 'two': 1, 'momentum': 0.99}
+    #     criterion_kd = GL_MoCo(s_dim=s_n, t_dim=t_n, m=momentum_rate[opt.gnnencoder],
+    #                            opt=opt)  # m momentum rate one:0 two:1 momentum 0.99
+    #     module_list.append(criterion_kd.transfer)
+    #     trainable_list.append(criterion_kd.transfer)
+    #     # trainable_list.append(criterion_kd.gnn_q)
+    #     # trainable_list.append(criterion_kd.gnn_k)
     elif opt.distill == 'gckd':
         s_n = feat_s[-1].shape[1] if opt.last_feature == 1 else feat_s[-2].shape[1]
         t_n = feat_t[-1].shape[1] if opt.last_feature == 1 else feat_t[-2].shape[1]
         momentum_rate = {'one': 0, 'two': 1, 'momentum': 0.99}
-        criterion_kd = GCKD(s_dim=s_n, t_dim=t_n, m=momentum_rate[opt.gnnencoder],K=opt.queue,
+        criterion_kd = GCKD(s_dim=s_n, t_dim=t_n, m=momentum_rate[opt.gnnencoder], K=opt.queue,
                             opt=opt)  # m momentum rate one:0 two:1 momentum 0.99
         module_list.append(criterion_kd.transfer)
         trainable_list.append(criterion_kd.transfer)
@@ -401,7 +403,8 @@ def main_worker(gpu, ngpus_per_node, opt, tb_writer=None):
                           momentum=opt.momentum,
                           weight_decay=opt.weight_decay)
     optimizer_list = [optimizer]
-    if opt.distill in ['gld', 'gckd']:
+    # if opt.distill in ['gld', 'gckd']:
+    if opt.distill in ['gckd']:
         GNN_optimizer = optim.SGD(nn.ModuleList([criterion_kd.gnn_q, criterion_kd.gnn_k]).parameters(),
                                   lr=opt.learning_rate,
                                   momentum=opt.momentum,
@@ -438,7 +441,7 @@ def main_worker(gpu, ngpus_per_node, opt, tb_writer=None):
 
     # ===================dataloader=====================
     if opt.dataset == 'cifar100':
-        if opt.distill in ['crd','hkd']:
+        if opt.distill in ['crd', 'hkd']:
             train_loader, val_loader, n_data = get_cifar100_dataloaders_sample(batch_size=opt.batch_size,
                                                                                num_workers=opt.num_workers,
                                                                                k=opt.nce_k,
@@ -533,7 +536,7 @@ def main_worker(gpu, ngpus_per_node, opt, tb_writer=None):
             # logger.log_value('train_loss', train_loss, epoch)
 
         print('GPU %d validating' % (opt.gpu))
-        test_acc, test_acc_top5, test_loss = validate_distill(epoch,val_loader, module_list, criterion_cls, opt)
+        test_acc, test_acc_top5, test_loss = validate_distill(epoch, val_loader, module_list, criterion_cls, opt)
 
         if opt.tb_writer != None:
             opt.tb_writer.add_scalar('acc/test_acc', test_acc, epoch)
